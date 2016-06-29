@@ -184,16 +184,6 @@ class DecoderCache(object):
         self._index = None
         self._fd = None
 
-    def _get_fd(self):
-        if self._fd is None:
-            self._fd = open(self._key2path(str(uuid1())), 'wb')
-        return self._fd
-
-    def _close_fd(self):
-        if self._fd is not None:
-            self._fd.close()
-            self._fd = None
-
     def __enter__(self):
         try:
             self._remove_legacy_files()
@@ -216,7 +206,73 @@ class DecoderCache(object):
     def __exit__(self, exc_type, exc_value, traceback):
         self._close_fd()
         if self._index is not None:
-            return self._index.__exit__(exc_type, exc_value, traceback)
+            rval = self._index.__exit__(exc_type, exc_value, traceback)
+            self._index = None
+            return rval
+
+    @staticmethod
+    def get_default_dir():
+        """Returns the default location of the cache.
+
+        Returns
+        -------
+        str
+        """
+        return rc.get('decoder_cache', 'path')
+
+    def _close_fd(self):
+        if self._fd is not None:
+            self._fd.close()
+            self._fd = None
+
+    def _get_fd(self):
+        if self._fd is None:
+            self._fd = open(self._key2path(str(uuid1())), 'wb')
+        return self._fd
+
+    def _check_legacy_file(self):
+        """Checks if the legacy file is up to date."""
+        legacy_file = os.path.join(self.cache_dir, self._LEGACY)
+        if os.path.exists(legacy_file):
+            with open(legacy_file, 'r') as lf:
+                text = lf.read()
+            try:
+                lv, pp = tuple(int(x.strip()) for x in text.split('.'))
+            except ValueError:
+                # Will be raised with old legacy.txt format
+                lv = pp = -1
+        else:
+            lv = pp = -1
+        return lv == self._LEGACY_VERSION and pp == self._PICKLE_PROTOCOL
+
+    def _remove_legacy_files(self):
+        """Remove files from now invalid locations in the cache.
+
+        This will not remove any files if a legacy file exists and is
+        up to date. Once legacy files are removed, a legacy file will be
+        written to avoid a costly ``os.listdir`` after calling this.
+        """
+        lock_filename = 'legacy.lock'
+        with FileLock(os.path.join(self.cache_dir, lock_filename)):
+            if self._check_legacy_file():
+                return
+
+            for f in os.listdir(self.cache_dir):
+                if f == lock_filename:
+                    continue
+                path = os.path.join(self.cache_dir, f)
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+
+            self._write_legacy_file()
+
+    def _write_legacy_file(self):
+        """Writes a legacy file, indicating that legacy files do not exist."""
+        legacy_file = os.path.join(self.cache_dir, self._LEGACY)
+        with open(legacy_file, 'w') as lf:
+            lf.write("%d.%d\n" % (self._LEGACY_VERSION, self._PICKLE_PROTOCOL))
 
     def get_files(self):
         """Returns all of the files in the cache.
@@ -232,6 +288,15 @@ class DecoderCache(object):
                 files.extend(os.path.join(path, f) for f in os.listdir(path))
         return files
 
+    def get_size(self):
+        """Returns the size of the cache with units as a string.
+
+        Returns
+        -------
+        str
+        """
+        return bytes2human(self.get_size_in_bytes())
+
     def get_size_in_bytes(self):
         """Returns the size of the cache in bytes as an int.
 
@@ -243,16 +308,13 @@ class DecoderCache(object):
         return sum(byte_align(st.st_size, self._fragment_size)
                    for st in stats if st is not None)
 
-    def get_size(self):
-        """Returns the size of the cache with units as a string.
+    def invalidate(self):
+        """Invalidates the cache (i.e. removes all cache files)."""
+        self._close_fd()
+        for path in self.get_files():
+            safe_remove(path)
 
-        Returns
-        -------
-        str
-        """
-        return bytes2human(self.get_size_in_bytes())
-
-    def shrink(self, limit=None):
+    def shrink(self, limit=None):  # noqa: C901
         """Reduces the size of the cache to meet a limit.
 
         Parameters
@@ -261,6 +323,11 @@ class DecoderCache(object):
             Maximum size of the cache in bytes.
         """
         if self.readonly:
+            logger.info("Tried to shrink a readonly cache.")
+            return
+
+        if self._index is None:
+            warnings.warn("Cannot shrink outside of a `with cache` block.")
             return
 
         if limit is None:
@@ -292,67 +359,7 @@ class DecoderCache(object):
 
         self._index.sync()
 
-    def invalidate(self):
-        """Invalidates the cache (i.e. removes all cache files)."""
-        self._close_fd()
-        for path in self.get_files():
-            safe_remove(path)
-
-    def _check_legacy_file(self):
-        """Checks if the legacy file is up to date."""
-        legacy_file = os.path.join(self.cache_dir, self._LEGACY)
-        if os.path.exists(legacy_file):
-            with open(legacy_file, 'r') as lf:
-                text = lf.read()
-            try:
-                lv, pp = tuple(int(x.strip()) for x in text.split('.'))
-            except ValueError:
-                # Will be raised with old legacy.txt format
-                lv = pp = -1
-        else:
-            lv = pp = -1
-        return lv == self._LEGACY_VERSION and pp == self._PICKLE_PROTOCOL
-
-    def _write_legacy_file(self):
-        """Writes a legacy file, indicating that legacy files do not exist."""
-        legacy_file = os.path.join(self.cache_dir, self._LEGACY)
-        with open(legacy_file, 'w') as lf:
-            lf.write("%d.%d\n" % (self._LEGACY_VERSION, self._PICKLE_PROTOCOL))
-
-    def _remove_legacy_files(self):
-        """Remove files from now invalid locations in the cache.
-
-        This will not remove any files if a legacy file exists and is
-        up to date. Once legacy files are removed, a legacy file will be
-        written to avoid a costly ``os.listdir`` after calling this.
-        """
-        lock_filename = 'legacy.lock'
-        with FileLock(os.path.join(self.cache_dir, lock_filename)):
-            if self._check_legacy_file():
-                return
-
-            for f in os.listdir(self.cache_dir):
-                if f == lock_filename:
-                    continue
-                path = os.path.join(self.cache_dir, f)
-                if os.path.isdir(path):
-                    shutil.rmtree(path)
-                else:
-                    os.remove(path)
-
-            self._write_legacy_file()
-
-    @staticmethod
-    def get_default_dir():
-        """Returns the default location of the cache.
-
-        Returns
-        -------
-        str
-        """
-        return rc.get('decoder_cache', 'path')
-
-    def wrap_solver(self, solver_fn):
+    def wrap_solver(self, solver_fn):  # noqa: C901
         """Takes a decoder solver and wraps it to use caching.
 
         Parameters
@@ -388,9 +395,12 @@ class DecoderCache(object):
                     solver_info, decoders = nco.read(f)
             except:
                 logger.debug("Cache miss [%s].", key)
+                if self._index is None:
+                    warnings.warn("Cannot use cached solver outside of "
+                                  "`with cache` block.")
                 decoders, solver_info = solver_fn(
                     solver, neuron_type, gain, bias, x, targets, rng=rng, E=E)
-                if not self.readonly:
+                if not self.readonly and self._index is not None:
                     fd = self._get_fd()
                     start = fd.tell()
                     nco.write(fd, solver_info, decoders)

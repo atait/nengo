@@ -24,6 +24,15 @@ Release History
 
 
 
+2.1.2 (June 27, 2016)
+=====================
+
+**Bug fixes**
+
+- The DecoderCache is now more robust when used improperly, and no longer
+  requires changes to backends in order to use properly.
+  (`#1112 <https://github.com/nengo/nengo/pull/1112>`_)
+
 2.1.1 (June 24, 2016)
 =====================
 

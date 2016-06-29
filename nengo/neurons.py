@@ -209,6 +209,39 @@ class Sigmoid(NeuronType):
         output[...] = (1. / self.tau_ref) / (1.0 + np.exp(-J))
 
 
+class Sinusoid(NeuronType):
+    """A neuron model whose response curve is a half-period of a
+    sinusoidal curve."""
+
+    probeable = ('rates',)
+
+    s_pi = NumberParam('s_pi', low=0)
+
+    def __init__(self, max_overall_rate=400, s_pi=0.1):
+        super(Sinusoid, self).__init__()
+        self.max_overall_rate = max_overall_rate
+        self.s_pi = s_pi
+
+    def gain_bias(self, max_rates, intercepts):
+        """Determine gain and bias by shifting and scaling the lines."""
+        inv = self.s_pi / np.pi * np.arccos(1 - 2 * max_rates / self.max_overall_rate)
+
+        gain = inv / (1 - intercepts)
+
+        bias = -gain - self.s_pi / 2 + inv
+
+        return gain, bias
+
+    def step_math(self, dt, J, output):
+        """Implement the rectification nonlinearity."""
+        phase = J / self.s_pi + 0.5
+
+        np.clip(phase, 0, 1, out=phase)
+
+        output[...] = self.max_overall_rate * 0.5 * \
+            (1 - np.cos(np.pi * phase))
+
+
 class LIFRate(NeuronType):
     """Non-spiking version of the leaky integrate-and-fire (LIF) neuron model.
 

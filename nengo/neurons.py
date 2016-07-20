@@ -234,17 +234,25 @@ class Sinusoid(NeuronType):
 
     def step_math(self, dt, J, output):
         """Implement the rectification nonlinearity."""
-        phase = J / self.s_pi + 0.5
+        phase = J / self.s_pi
 
-        np.clip(phase, 0, 1, out=phase)
+        np.clip(phase, -0.5, 0.5, out=phase)
 
         output[...] = self.max_overall_rate * 0.5 * \
-            (1 - np.cos(np.pi * phase))
+            (1 + np.sin(np.pi * phase))
 
 
 class FourierSinusoid(Sinusoid):
     """A neuron model whose response curve is a half-period of a
-    sinusoidal curve."""
+    sinusoidal curve.
+
+    DISCLAIMER: This class was hijacked. The new interpretation of
+    intercepts and max_rates are as follows is as follows:
+    intercepts : phase at dot(x, e) = 0
+        (-0.5, 0.5)
+    max_rates : directly proportional to gain.
+        i.e. how many periods do we want between dot(x, e) = -1 and 1
+    """
 
     probeable = ('rates',)
 
@@ -255,22 +263,21 @@ class FourierSinusoid(Sinusoid):
 
     def gain_bias(self, max_rates, intercepts):
         """Determine gain and bias by shifting and scaling the lines."""
-        inv = self.s_pi / np.pi * np.arccos(1 - 2 * max_rates / self.max_overall_rate)
-        print(max_rates)
-        gain = inv / (1 - intercepts)
 
-        bias = -gain - self.s_pi / 2 + inv
+        gain = max_rates * self.s_pi
+        with np.errstate(divide='ignore', invalid='ignore'):
+            bias = np.divide(intercepts, gain)
+        bias = np.where(~np.isfinite(np.abs(bias)), 0, bias)
 
         return gain, bias
 
     def step_math(self, dt, J, output):
-        """Implement the rectification nonlinearity."""
-        phase = J / self.s_pi + 0.5
-
-        np.clip(phase, 0, 1, out=phase)
+        """Implement the nonlinearity."""
+        # basically the formula is output = 0.5*(1 + sin(J/s_pi * pi))
+        phase = J / self.s_pi
 
         output[...] = self.max_overall_rate * 0.5 * \
-            (1 - np.cos(np.pi * phase))
+            (1 + np.sin(np.pi * phase))
 
 
 class LIFRate(NeuronType):

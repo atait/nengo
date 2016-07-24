@@ -265,9 +265,7 @@ class FourierSinusoid(Sinusoid):
         """Determine gain and bias by shifting and scaling the lines."""
 
         gain = max_rates * self.s_pi
-        with np.errstate(divide='ignore', invalid='ignore'):
-            bias = np.divide(intercepts, gain)
-        bias = np.where(~np.isfinite(np.abs(bias)), 0, bias)
+        bias = intercepts * self.s_pi
 
         return gain, bias
 

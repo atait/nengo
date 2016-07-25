@@ -259,7 +259,7 @@ class FourierSinusoid(Sinusoid):
     s_pi = NumberParam('s_pi', low=0)
 
     def __init__(self, max_overall_rate=400, s_pi=0.1):
-        super(FourierSinusoid, self).__init__(max_overall_rate=400, s_pi=0.1)
+        super(FourierSinusoid, self).__init__(max_overall_rate=max_overall_rate, s_pi=s_pi)
 
     def gain_bias(self, max_rates, intercepts):
         """Determine gain and bias by shifting and scaling the lines."""

@@ -263,22 +263,20 @@ class FourierSinusoid(NeuronType):
         self.max_overall_rate = max_overall_rate
         self.s_pi = s_pi
 
-    # def gain_bias_old(self, max_rates, intercepts):
-    #     """Determine gain and bias by shifting and scaling the lines."""
+    def gain_bias_old(self, max_rates, intercepts):
+        """Determine gain and bias by shifting and scaling the lines."""
 
-    #     gain = max_rates * self.s_pi
-    #     with np.errstate(divide='ignore', invalid='ignore'):
-    #         bias = np.divide(intercepts, gain)
-    #     bias = np.where(~np.isfinite(np.abs(bias)), 0, bias)
-
-    #     return gain, bias
+        gain = max_rates * self.s_pi
+        with np.errstate(divide='ignore', invalid='ignore'):
+            bias = np.divide(intercepts, gain)
+        bias = np.where(~np.isfinite(np.abs(bias)), 0, bias)
+        return gain, bias
 
     def gain_bias(self, max_rates, intercepts):
         """Determine gain and bias by shifting and scaling the lines.
-        This one foregoes any calculation and straight hijacks"""
+        This one foregoes any calculation"""
         gain = max_rates
         bias = intercepts
-
         return gain, bias
 
     # def step_math_old(self, dt, J, output, voltage):

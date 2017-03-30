@@ -21,3 +21,6 @@ Vagrantfile
 *.eggs/
 .coverage
 htmlcov
+
+examples/lightwave_stuff/discreteTimeLorenzFiles/ctrnn\ data/
+examples/lightwave_stuff/discreteTimeLorenzFiles/codegen/

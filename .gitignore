@@ -24,3 +24,4 @@ htmlcov
 
 examples/lightwave_stuff/discreteTimeLorenzFiles/ctrnn\ data/*.mat
 examples/lightwave_stuff/discreteTimeLorenzFiles/codegen/
+examples/lightwave_stuff/discreteTimeLorenzFiles/*.mex*

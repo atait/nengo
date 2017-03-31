@@ -1,4 +1,5 @@
 # The Lorenz discrete-time simulator
+This is a benchmark, so it's purpose is to plot the CTRNN and discrete time data in a way that can be compared, in addition to evaluating the discrete time performance.
 
 ## What is here:
 1. `lorenz_sim` - minimal script that performs the simulation
@@ -6,21 +7,19 @@
 3. `lorenz_eval` - runs many times, doing various evaluating/plotting
 
 ## Setting up
-This is happening mainly in MATLAB because it has excellent compiler libraries. It is also good for plotting.
+This is happening mainly in MATLAB because it has powerful compiler libraries.
 
-#### Make a directory `ctrnn data` in the same directory as these files. 
-Point the Fourier Sinusoid or whichever notebook to save `.mat` files there. Then, this code will use those to plot a nice side-by-side comparison.
+#### Generate some CTRNN data
+Run the `Fourier Sinusoid Neuron_SciRep` notebook. This saves a .mat file with the CTRNN data. The `ctrnn data/*.mat` directory is in the .gitignore.
 
-The `ctrnn data/` directory is in the .gitignore
+#### Compile the optimized simulator (optional)
+If you are just plotting paper figures, this is optional. The optimized version is only needed for performance analysis (plottype=2, below).
 
-#### (Optional) Re-compile the simulator
-by running, in the MATLAB command line, 
+In the MATLAB command line, 
 ```
 codegen lorenz_sim
 ```
-This is as straightforward as it gets. You have to redo this if you make changes to the lorenz_sim file for whatever reason (e.g. to temporarily change it to deterministic)
-
-The `codegen/` directory is in the .gitignore
+You have to redo this if you make changes to the lorenz_sim file (e.g. to temporarily change it to deterministic).
 
 #### Run the evaluator
 The evaluator has three modes, determined by the `plottype` flag. If `plottype ==`

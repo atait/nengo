@@ -297,33 +297,33 @@ A copy of this notebook is available at:
 https://github.com/lightwave-lab/Neuromorphic\_Silicon\_Photonics
 
     \begin{Verbatim}[commandchars=\\\{\}]
-{\color{incolor}In [{\color{incolor}14}]:} \PY{c+c1}{\PYZsh{} The following notebook was run using Python 3.6.0 and nengo 2.2.0}
-         \PY{c+c1}{\PYZsh{} Setting up notebook}
-         \PY{k+kn}{import} \PY{n+nn}{numpy} \PY{k}{as} \PY{n+nn}{np}
-         \PY{k+kn}{import} \PY{n+nn}{matplotlib}\PY{n+nn}{.}\PY{n+nn}{pyplot} \PY{k}{as} \PY{n+nn}{plt}
-         \PY{k+kn}{import} \PY{n+nn}{matplotlib}\PY{n+nn}{.}\PY{n+nn}{colors} \PY{k}{as} \PY{n+nn}{colors}
-         \PY{k+kn}{import} \PY{n+nn}{matplotlib}\PY{n+nn}{.}\PY{n+nn}{cm} \PY{k}{as} \PY{n+nn}{cmx}
-         \PY{o}{\PYZpc{}}\PY{k}{matplotlib} inline
-         \PY{k+kn}{from} \PY{n+nn}{matplotlib}\PY{n+nn}{.}\PY{n+nn}{backends}\PY{n+nn}{.}\PY{n+nn}{backend\PYZus{}pdf} \PY{k}{import} \PY{n}{PdfPages}
-         \PY{o}{\PYZpc{}}\PY{k}{config} InlineBackend.figure\PYZus{}format = \PYZsq{}retina\PYZsq{}
-         
-         \PY{n}{plt}\PY{o}{.}\PY{n}{style}\PY{o}{.}\PY{n}{use}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{seaborn\PYZhy{}colorblind}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         
-         \PY{k+kn}{from} \PY{n+nn}{matplotlib} \PY{k}{import} \PY{n}{rc}\PY{p}{,} \PY{n}{rcParams}
-         \PY{n}{rc}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{font}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,}\PY{o}{*}\PY{o}{*}\PY{p}{\PYZob{}}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{family}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{sans\PYZhy{}serif}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{sans\PYZhy{}serif}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{p}{[}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Helvetica}\PY{l+s+s1}{\PYZsq{}}\PY{p}{]}\PY{p}{,}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{size}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{l+m+mi}{7}\PY{p}{\PYZcb{}}\PY{p}{)}
-         \PY{n}{rc}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{text}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{usetex}\PY{o}{=}\PY{k+kc}{True}\PY{p}{)}
-         \PY{n}{rcParams}\PY{p}{[}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{text.latex.preamble}\PY{l+s+s1}{\PYZsq{}}\PY{p}{]} \PY{o}{=} \PY{p}{[}\PY{l+s+sa}{r}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZbs{}}\PY{l+s+s1}{usepackage}\PY{l+s+si}{\PYZob{}sfmath\PYZcb{}}\PY{l+s+s1}{\PYZsq{}}\PY{p}{]}
-         
-         \PY{k+kn}{import} \PY{n+nn}{nengo}
-         \PY{o}{\PYZpc{}}\PY{k}{load\PYZus{}ext} nengo.ipynb
+{\color{incolor}In [{\color{incolor}1}]:} \PY{c+c1}{\PYZsh{} The following notebook was run using Python 3.6.0 and nengo 2.2.0}
+        \PY{c+c1}{\PYZsh{} Setting up notebook}
+        \PY{k+kn}{import} \PY{n+nn}{numpy} \PY{k}{as} \PY{n+nn}{np}
+        \PY{k+kn}{import} \PY{n+nn}{matplotlib}\PY{n+nn}{.}\PY{n+nn}{pyplot} \PY{k}{as} \PY{n+nn}{plt}
+        \PY{k+kn}{import} \PY{n+nn}{matplotlib}\PY{n+nn}{.}\PY{n+nn}{colors} \PY{k}{as} \PY{n+nn}{colors}
+        \PY{k+kn}{import} \PY{n+nn}{matplotlib}\PY{n+nn}{.}\PY{n+nn}{cm} \PY{k}{as} \PY{n+nn}{cmx}
+        \PY{o}{\PYZpc{}}\PY{k}{matplotlib} inline
+        \PY{k+kn}{from} \PY{n+nn}{matplotlib}\PY{n+nn}{.}\PY{n+nn}{backends}\PY{n+nn}{.}\PY{n+nn}{backend\PYZus{}pdf} \PY{k}{import} \PY{n}{PdfPages}
+        \PY{o}{\PYZpc{}}\PY{k}{config} InlineBackend.figure\PYZus{}format = \PYZsq{}retina\PYZsq{}
+        
+        \PY{n}{plt}\PY{o}{.}\PY{n}{style}\PY{o}{.}\PY{n}{use}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{seaborn\PYZhy{}colorblind}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        
+        \PY{k+kn}{from} \PY{n+nn}{matplotlib} \PY{k}{import} \PY{n}{rc}\PY{p}{,} \PY{n}{rcParams}
+        \PY{n}{rc}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{font}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,}\PY{o}{*}\PY{o}{*}\PY{p}{\PYZob{}}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{family}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{sans\PYZhy{}serif}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{sans\PYZhy{}serif}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{p}{[}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Helvetica}\PY{l+s+s1}{\PYZsq{}}\PY{p}{]}\PY{p}{,}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{size}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{l+m+mi}{7}\PY{p}{\PYZcb{}}\PY{p}{)}
+        \PY{n}{rc}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{text}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{usetex}\PY{o}{=}\PY{k+kc}{True}\PY{p}{)}
+        \PY{n}{rcParams}\PY{p}{[}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{text.latex.preamble}\PY{l+s+s1}{\PYZsq{}}\PY{p}{]} \PY{o}{=} \PY{p}{[}\PY{l+s+sa}{r}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZbs{}}\PY{l+s+s1}{usepackage}\PY{l+s+si}{\PYZob{}sfmath\PYZcb{}}\PY{l+s+s1}{\PYZsq{}}\PY{p}{]}
+        
+        \PY{k+kn}{import} \PY{n+nn}{nengo}
+        \PY{o}{\PYZpc{}}\PY{k}{load\PYZus{}ext} nengo.ipynb
 \end{Verbatim}
 
-    \begin{Verbatim}[commandchars=\\\{\}]
-The nengo.ipynb extension is already loaded. To reload it, use:
-  \%reload\_ext nengo.ipynb
+    
+    \begin{verbatim}
+<IPython.core.display.Javascript object>
+    \end{verbatim}
 
-    \end{Verbatim}
-
+    
 \section{Modifications to the nengo
 project}\label{modifications-to-the-nengo-project}
 
@@ -479,7 +479,7 @@ domain \(\vec e_i \cdot \vec x \in [-1,1]\). (See
 \protect\hyperlink{tuning_curves}{tuning curves}).
 
     \begin{Verbatim}[commandchars=\\\{\}]
-{\color{incolor}In [{\color{incolor} }]:} \PY{n}{model} \PY{o}{=} \PY{n}{nengo}\PY{o}{.}\PY{n}{Network}\PY{p}{(}\PY{p}{)}
+{\color{incolor}In [{\color{incolor}2}]:} \PY{n}{model} \PY{o}{=} \PY{n}{nengo}\PY{o}{.}\PY{n}{Network}\PY{p}{(}\PY{p}{)}
         \PY{c+c1}{\PYZsh{} V\PYZus{}pi of a modulator converted to state variable}
         \PY{n}{s\PYZus{}pi} \PY{o}{=} \PY{l+m+mf}{0.1}
         \PY{c+c1}{\PYZsh{} Max rate, or output, which is transmission in this case}
@@ -631,12 +631,10 @@ domain \(\vec e_i \cdot \vec x \in [-1,1]\). (See
       22        [ 1. -1.  1.]      0.25           0.15      
       23        [ 1.  1. -1.]      0.25           0.15      
       24        [ 1.  1.  1.]      0.25           0.15      
-seed: 9271570
+seed: 8879646
 
     \end{Verbatim}
 
-    
-    
 \subsection{Tuning curves in Fourier
 basis}\label{tuning-curves-in-fourier-basis}
 
@@ -646,7 +644,7 @@ Here, assuming that the neuron states are
 to the previous \protect\hyperlink{Encoding-strategy}{table}.
 
     \begin{Verbatim}[commandchars=\\\{\}]
-{\color{incolor}In [{\color{incolor} }]:} \PY{k+kn}{from} \PY{n+nn}{nengo}\PY{n+nn}{.}\PY{n+nn}{utils}\PY{n+nn}{.}\PY{n+nn}{ensemble} \PY{k}{import} \PY{n}{tuning\PYZus{}curves}
+{\color{incolor}In [{\color{incolor}3}]:} \PY{k+kn}{from} \PY{n+nn}{nengo}\PY{n+nn}{.}\PY{n+nn}{utils}\PY{n+nn}{.}\PY{n+nn}{ensemble} \PY{k}{import} \PY{n}{tuning\PYZus{}curves}
         \PY{k+kn}{from} \PY{n+nn}{nengo}\PY{n+nn}{.}\PY{n+nn}{utils}\PY{n+nn}{.}\PY{n+nn}{ensemble} \PY{k}{import} \PY{n}{response\PYZus{}curves}
         
         \PY{n}{saving} \PY{o}{=} \PY{k+kc}{False}
@@ -759,26 +757,35 @@ Below, we show the computed weight matrix \(\overline{\overline{W}}\)
 for this system.
 
     \begin{Verbatim}[commandchars=\\\{\}]
-{\color{incolor}In [{\color{incolor}75}]:} \PY{c+c1}{\PYZsh{} The weight probe is sim.data[weight\PYZus{}probe][0,:,:], }
-         \PY{c+c1}{\PYZsh{} but that gives the best approx to (x0, x1, x2)}
-         \PY{c+c1}{\PYZsh{} What we actually want is the interconnection matrix.}
-         \PY{c+c1}{\PYZsh{} For that, you need to encode this vector using the encoders variable.}
-         \PY{n}{weight\PYZus{}matrix} \PY{o}{=} \PY{n}{np}\PY{o}{.}\PY{n}{dot}\PY{p}{(}\PY{n}{encoders}\PY{p}{,} \PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{weight\PYZus{}probe}\PY{p}{]}\PY{p}{[}\PY{l+m+mi}{0}\PY{p}{,}\PY{p}{:}\PY{p}{,}\PY{p}{:}\PY{p}{]}\PY{p}{)}
-         
-         \PY{n}{saving} \PY{o}{=} \PY{k+kc}{False}
-         \PY{k}{if} \PY{n}{saving}\PY{p}{:}
-             \PY{n}{pp} \PY{o}{=} \PY{n}{PdfPages}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{weight\PYZus{}matrix.pdf}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         \PY{n}{fig} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{figure}\PY{p}{(}\PY{l+m+mi}{3}\PY{p}{,} \PY{n}{figsize}\PY{o}{=}\PY{p}{(}\PY{l+m+mi}{3}\PY{p}{,}\PY{l+m+mi}{3}\PY{p}{)}\PY{p}{,} \PY{n}{dpi}\PY{o}{=}\PY{l+m+mi}{72}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{imshow}\PY{p}{(}\PY{n}{weight\PYZus{}matrix}\PY{p}{,} \PY{n}{cmap}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{bwr}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{interpolation}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{nearest}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{colorbar}\PY{p}{(}\PY{p}{)}
-         \PY{k}{if} \PY{n}{saving}\PY{p}{:}
-             \PY{n}{pp}\PY{o}{.}\PY{n}{savefig}\PY{p}{(}\PY{p}{)}
-             \PY{n}{pp}\PY{o}{.}\PY{n}{close}\PY{p}{(}\PY{p}{)}
-         \PY{n+nb}{print}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Max weight sum is}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{np}\PY{o}{.}\PY{n}{max}\PY{p}{(}\PY{n}{np}\PY{o}{.}\PY{n}{abs}\PY{p}{(}\PY{n}{weight\PYZus{}matrix}\PY{p}{)}\PY{p}{,} \PY{n}{axis}\PY{o}{=}\PY{l+m+mi}{1}\PY{p}{)}\PY{p}{)}
+{\color{incolor}In [{\color{incolor}4}]:} \PY{c+c1}{\PYZsh{} The weight probe is sim.data[weight\PYZus{}probe][0,:,:], }
+        \PY{c+c1}{\PYZsh{} but that gives the best approx to (x0, x1, x2)}
+        \PY{c+c1}{\PYZsh{} What we actually want is the interconnection matrix.}
+        \PY{c+c1}{\PYZsh{} For that, you need to encode this vector using the encoders variable.}
+        \PY{n}{weight\PYZus{}matrix} \PY{o}{=} \PY{n}{np}\PY{o}{.}\PY{n}{dot}\PY{p}{(}\PY{n}{encoders}\PY{p}{,} \PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{weight\PYZus{}probe}\PY{p}{]}\PY{p}{[}\PY{l+m+mi}{0}\PY{p}{,}\PY{p}{:}\PY{p}{,}\PY{p}{:}\PY{p}{]}\PY{p}{)}
+        
+        \PY{n}{saving} \PY{o}{=} \PY{k+kc}{False}
+        \PY{k}{if} \PY{n}{saving}\PY{p}{:}
+            \PY{n}{pp} \PY{o}{=} \PY{n}{PdfPages}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{weight\PYZus{}matrix.pdf}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        \PY{n}{fig} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{figure}\PY{p}{(}\PY{l+m+mi}{3}\PY{p}{,} \PY{n}{figsize}\PY{o}{=}\PY{p}{(}\PY{l+m+mi}{3}\PY{p}{,}\PY{l+m+mi}{3}\PY{p}{)}\PY{p}{,} \PY{n}{dpi}\PY{o}{=}\PY{l+m+mi}{72}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{imshow}\PY{p}{(}\PY{n}{weight\PYZus{}matrix}\PY{p}{,} \PY{n}{cmap}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{bwr}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{interpolation}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{nearest}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{colorbar}\PY{p}{(}\PY{p}{)}
+        \PY{k}{if} \PY{n}{saving}\PY{p}{:}
+            \PY{n}{pp}\PY{o}{.}\PY{n}{savefig}\PY{p}{(}\PY{p}{)}
+            \PY{n}{pp}\PY{o}{.}\PY{n}{close}\PY{p}{(}\PY{p}{)}
+        \PY{n+nb}{print}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Max weight sum is}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{np}\PY{o}{.}\PY{n}{max}\PY{p}{(}\PY{n}{np}\PY{o}{.}\PY{n}{abs}\PY{p}{(}\PY{n}{weight\PYZus{}matrix}\PY{p}{)}\PY{p}{,} \PY{n}{axis}\PY{o}{=}\PY{l+m+mi}{1}\PY{p}{)}\PY{p}{)}
 \end{Verbatim}
 
+    \begin{Verbatim}[commandchars=\\\{\}]
+Max weight sum is [ 1195.11526203  1234.71946625  1209.20545697  1216.83446327  1195.11526203
+  1234.71946625  1209.20545697  1216.83446327  1195.11526203  1234.71946625
+  1209.20545697  1216.83446327  1195.11526203  1234.71946625  1209.20545697
+  1216.83446327  1195.11526203  1234.71946625  1209.20545697  1216.83446327
+  1195.11526203  1234.71946625  1209.20545697  1216.83446327]
+
+    \end{Verbatim}
+
     \begin{center}
-    \adjustimage{max size={0.9\linewidth}{0.9\paperheight}}{Neuromorphic_Silicon_Photonics_files/Neuromorphic_Silicon_Photonics_9_0.png}
+    \adjustimage{max size={0.9\linewidth}{0.9\paperheight}}{Neuromorphic_Silicon_Photonics_files/Neuromorphic_Silicon_Photonics_9_1.png}
     \end{center}
     { \hspace*{\fill} \\}
     
@@ -790,51 +797,51 @@ decode for \(\vec{x}\) using \(d^{(x)} \vec s\). Observe the emergence
 of the Lorenz attractor butterfly shape.
 
     \begin{Verbatim}[commandchars=\\\{\}]
-{\color{incolor}In [{\color{incolor}76}]:} \PY{k+kn}{from} \PY{n+nn}{mpl\PYZus{}toolkits}\PY{n+nn}{.}\PY{n+nn}{mplot3d} \PY{k}{import} \PY{n}{Axes3D}
-         \PY{n}{saving} \PY{o}{=} \PY{k+kc}{False}
-         
-         \PY{k}{if} \PY{n}{saving}\PY{p}{:}
-             \PY{n}{pp} \PY{o}{=} \PY{n}{PdfPages}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lorenz\PYZus{}system\PYZus{}3d.pdf}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         \PY{n}{fig} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{figure}\PY{p}{(}\PY{l+m+mi}{0}\PY{p}{,} \PY{n}{figsize}\PY{o}{=}\PY{p}{(}\PY{l+m+mi}{6}\PY{p}{,}\PY{l+m+mf}{4.8}\PY{p}{)}\PY{p}{,} \PY{n}{dpi}\PY{o}{=}\PY{l+m+mi}{72}\PY{p}{)}
-         \PY{n}{ax} \PY{o}{=} \PY{n}{fig}\PY{o}{.}\PY{n}{add\PYZus{}subplot}\PY{p}{(}\PY{l+m+mi}{111}\PY{p}{,} \PY{n}{projection}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{3d}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         \PY{n}{dat3d} \PY{o}{=} \PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{variable\PYZus{}probe}\PY{p}{]}\PY{p}{[}\PY{p}{:}\PY{p}{,} \PY{n}{dim}\PY{p}{]} \PY{k}{for} \PY{n}{dim} \PY{o+ow}{in} \PY{n+nb}{range}\PY{p}{(}\PY{l+m+mi}{3}\PY{p}{)}\PY{p}{)}
-         \PY{n}{ax}\PY{o}{.}\PY{n}{plot}\PY{p}{(}\PY{o}{*}\PY{n}{dat3d}\PY{p}{,} \PY{n}{linewidth} \PY{o}{=} \PY{l+m+mf}{0.5}\PY{p}{)}
-         \PY{n}{ax}\PY{o}{.}\PY{n}{set\PYZus{}xlabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}0\PYZdl{} (a.u.)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
-         \PY{n}{ax}\PY{o}{.}\PY{n}{set\PYZus{}ylabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}1\PYZdl{} (a.u.)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
-         \PY{n}{ax}\PY{o}{.}\PY{n}{set\PYZus{}zlabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}2\PYZdl{} (a.u.)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
-         \PY{k}{for} \PY{n}{xlabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}xticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
-             \PY{n}{xlabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
-         \PY{k}{for} \PY{n}{ylabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}yticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
-             \PY{n}{ylabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
-         \PY{k}{for} \PY{n}{zlabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}zticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
-             \PY{n}{zlabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
-         
-         \PY{n}{plt}\PY{o}{.}\PY{n}{tight\PYZus{}layout}\PY{p}{(}\PY{p}{)}
-         \PY{k}{if} \PY{n}{saving}\PY{p}{:}
-             \PY{n}{pp}\PY{o}{.}\PY{n}{savefig}\PY{p}{(}\PY{p}{)}
-             \PY{n}{pp}\PY{o}{.}\PY{n}{close}\PY{p}{(}\PY{p}{)}
-             \PY{n}{pp} \PY{o}{=} \PY{n}{PdfPages}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lorenz\PYZus{}time\PYZus{}traces.pdf}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         \PY{n}{fig} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{figure}\PY{p}{(}\PY{l+m+mi}{1}\PY{p}{,} \PY{n}{figsize}\PY{o}{=}\PY{p}{(}\PY{l+m+mi}{6}\PY{p}{,}\PY{l+m+mf}{4.8}\PY{p}{)}\PY{p}{,} \PY{n}{dpi}\PY{o}{=}\PY{l+m+mi}{72}\PY{p}{)}
-         \PY{k}{for} \PY{n}{variable}\PY{p}{,} \PY{n}{label} \PY{o+ow}{in} \PY{n+nb}{zip}\PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{variable\PYZus{}probe}\PY{p}{]}\PY{o}{.}\PY{n}{T}\PY{p}{,} 
-                                    \PY{p}{[}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}0\PYZdl{}}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}1\PYZdl{}}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}2\PYZdl{}}\PY{l+s+s1}{\PYZsq{}}\PY{p}{]}\PY{p}{)}\PY{p}{:}
-             \PY{n}{plt}\PY{o}{.}\PY{n}{plot}\PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{trange}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{n}{variable}\PY{p}{,} \PY{n}{label}\PY{o}{=}\PY{n}{label}\PY{p}{,} \PY{n}{linewidth} \PY{o}{=} \PY{l+m+mf}{0.8}\PY{p}{)}
-         \PY{c+c1}{\PYZsh{} for dvar in sim.data[delay\PYZus{}probe].T:}
-         \PY{c+c1}{\PYZsh{}     plt.plot(sim.trange(), dvar)}
-         \PY{n}{ax} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{gca}\PY{p}{(}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{legend}\PY{p}{(}\PY{n}{bbox\PYZus{}to\PYZus{}anchor}\PY{o}{=}\PY{p}{(}\PY{l+m+mf}{0.}\PY{p}{,} \PY{o}{.}\PY{l+m+mi}{02}\PY{p}{,} \PY{l+m+mf}{1.}\PY{p}{,} \PY{o}{.}\PY{l+m+mi}{102}\PY{p}{)}\PY{p}{,} \PY{n}{loc}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lower center}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,}
-                    \PY{n}{ncol}\PY{o}{=}\PY{l+m+mi}{3}\PY{p}{,} \PY{n}{borderaxespad}\PY{o}{=}\PY{l+m+mf}{0.}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{xlabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Time (ns)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{ylabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Simulation variables, \PYZdl{}x\PYZdl{} (a.u.)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
-         \PY{k}{for} \PY{n}{xlabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}xticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
-             \PY{n}{xlabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
-         \PY{k}{for} \PY{n}{ylabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}yticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
-             \PY{n}{ylabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{tight\PYZus{}layout}\PY{p}{(}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{xlim}\PY{p}{(}\PY{p}{(}\PY{l+m+mi}{0}\PY{p}{,}\PY{n+nb}{max}\PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{trange}\PY{p}{(}\PY{p}{)}\PY{p}{)}\PY{p}{)}\PY{p}{)}
-         \PY{c+c1}{\PYZsh{} plt.ylim(15*np.array([\PYZhy{}1,1]))}
-         \PY{k}{if} \PY{n}{saving}\PY{p}{:}
-             \PY{n}{pp}\PY{o}{.}\PY{n}{savefig}\PY{p}{(}\PY{p}{)}
-             \PY{n}{pp}\PY{o}{.}\PY{n}{close}\PY{p}{(}\PY{p}{)}
+{\color{incolor}In [{\color{incolor}5}]:} \PY{k+kn}{from} \PY{n+nn}{mpl\PYZus{}toolkits}\PY{n+nn}{.}\PY{n+nn}{mplot3d} \PY{k}{import} \PY{n}{Axes3D}
+        \PY{n}{saving} \PY{o}{=} \PY{k+kc}{False}
+        
+        \PY{k}{if} \PY{n}{saving}\PY{p}{:}
+            \PY{n}{pp} \PY{o}{=} \PY{n}{PdfPages}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lorenz\PYZus{}system\PYZus{}3d.pdf}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        \PY{n}{fig} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{figure}\PY{p}{(}\PY{l+m+mi}{0}\PY{p}{,} \PY{n}{figsize}\PY{o}{=}\PY{p}{(}\PY{l+m+mi}{6}\PY{p}{,}\PY{l+m+mf}{4.8}\PY{p}{)}\PY{p}{,} \PY{n}{dpi}\PY{o}{=}\PY{l+m+mi}{72}\PY{p}{)}
+        \PY{n}{ax} \PY{o}{=} \PY{n}{fig}\PY{o}{.}\PY{n}{add\PYZus{}subplot}\PY{p}{(}\PY{l+m+mi}{111}\PY{p}{,} \PY{n}{projection}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{3d}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        \PY{n}{dat3d} \PY{o}{=} \PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{variable\PYZus{}probe}\PY{p}{]}\PY{p}{[}\PY{p}{:}\PY{p}{,} \PY{n}{dim}\PY{p}{]} \PY{k}{for} \PY{n}{dim} \PY{o+ow}{in} \PY{n+nb}{range}\PY{p}{(}\PY{l+m+mi}{3}\PY{p}{)}\PY{p}{)}
+        \PY{n}{ax}\PY{o}{.}\PY{n}{plot}\PY{p}{(}\PY{o}{*}\PY{n}{dat3d}\PY{p}{,} \PY{n}{linewidth} \PY{o}{=} \PY{l+m+mf}{0.5}\PY{p}{)}
+        \PY{n}{ax}\PY{o}{.}\PY{n}{set\PYZus{}xlabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}0\PYZdl{} (a.u.)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
+        \PY{n}{ax}\PY{o}{.}\PY{n}{set\PYZus{}ylabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}1\PYZdl{} (a.u.)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
+        \PY{n}{ax}\PY{o}{.}\PY{n}{set\PYZus{}zlabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}2\PYZdl{} (a.u.)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
+        \PY{k}{for} \PY{n}{xlabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}xticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
+            \PY{n}{xlabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
+        \PY{k}{for} \PY{n}{ylabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}yticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
+            \PY{n}{ylabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
+        \PY{k}{for} \PY{n}{zlabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}zticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
+            \PY{n}{zlabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
+        
+        \PY{n}{plt}\PY{o}{.}\PY{n}{tight\PYZus{}layout}\PY{p}{(}\PY{p}{)}
+        \PY{k}{if} \PY{n}{saving}\PY{p}{:}
+            \PY{n}{pp}\PY{o}{.}\PY{n}{savefig}\PY{p}{(}\PY{p}{)}
+            \PY{n}{pp}\PY{o}{.}\PY{n}{close}\PY{p}{(}\PY{p}{)}
+            \PY{n}{pp} \PY{o}{=} \PY{n}{PdfPages}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lorenz\PYZus{}time\PYZus{}traces.pdf}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        \PY{n}{fig} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{figure}\PY{p}{(}\PY{l+m+mi}{1}\PY{p}{,} \PY{n}{figsize}\PY{o}{=}\PY{p}{(}\PY{l+m+mi}{6}\PY{p}{,}\PY{l+m+mf}{4.8}\PY{p}{)}\PY{p}{,} \PY{n}{dpi}\PY{o}{=}\PY{l+m+mi}{72}\PY{p}{)}
+        \PY{k}{for} \PY{n}{variable}\PY{p}{,} \PY{n}{label} \PY{o+ow}{in} \PY{n+nb}{zip}\PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{variable\PYZus{}probe}\PY{p}{]}\PY{o}{.}\PY{n}{T}\PY{p}{,} 
+                                   \PY{p}{[}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}0\PYZdl{}}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}1\PYZdl{}}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{\PYZdl{}x\PYZus{}2\PYZdl{}}\PY{l+s+s1}{\PYZsq{}}\PY{p}{]}\PY{p}{)}\PY{p}{:}
+            \PY{n}{plt}\PY{o}{.}\PY{n}{plot}\PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{trange}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{n}{variable}\PY{p}{,} \PY{n}{label}\PY{o}{=}\PY{n}{label}\PY{p}{,} \PY{n}{linewidth} \PY{o}{=} \PY{l+m+mf}{0.8}\PY{p}{)}
+        \PY{c+c1}{\PYZsh{} for dvar in sim.data[delay\PYZus{}probe].T:}
+        \PY{c+c1}{\PYZsh{}     plt.plot(sim.trange(), dvar)}
+        \PY{n}{ax} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{gca}\PY{p}{(}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{legend}\PY{p}{(}\PY{n}{bbox\PYZus{}to\PYZus{}anchor}\PY{o}{=}\PY{p}{(}\PY{l+m+mf}{0.}\PY{p}{,} \PY{o}{.}\PY{l+m+mi}{02}\PY{p}{,} \PY{l+m+mf}{1.}\PY{p}{,} \PY{o}{.}\PY{l+m+mi}{102}\PY{p}{)}\PY{p}{,} \PY{n}{loc}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lower center}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,}
+                   \PY{n}{ncol}\PY{o}{=}\PY{l+m+mi}{3}\PY{p}{,} \PY{n}{borderaxespad}\PY{o}{=}\PY{l+m+mf}{0.}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{xlabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Time (ns)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{ylabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Simulation variables, \PYZdl{}x\PYZdl{} (a.u.)}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
+        \PY{k}{for} \PY{n}{xlabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}xticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
+            \PY{n}{xlabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
+        \PY{k}{for} \PY{n}{ylabel\PYZus{}i} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}yticklabels}\PY{p}{(}\PY{p}{)}\PY{p}{:}
+            \PY{n}{ylabel\PYZus{}i}\PY{o}{.}\PY{n}{set\PYZus{}fontsize}\PY{p}{(}\PY{l+m+mf}{12.0}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{tight\PYZus{}layout}\PY{p}{(}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{xlim}\PY{p}{(}\PY{p}{(}\PY{l+m+mi}{0}\PY{p}{,}\PY{n+nb}{max}\PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{trange}\PY{p}{(}\PY{p}{)}\PY{p}{)}\PY{p}{)}\PY{p}{)}
+        \PY{c+c1}{\PYZsh{} plt.ylim(15*np.array([\PYZhy{}1,1]))}
+        \PY{k}{if} \PY{n}{saving}\PY{p}{:}
+            \PY{n}{pp}\PY{o}{.}\PY{n}{savefig}\PY{p}{(}\PY{p}{)}
+            \PY{n}{pp}\PY{o}{.}\PY{n}{close}\PY{p}{(}\PY{p}{)}
 \end{Verbatim}
 
     \begin{center}
@@ -853,30 +860,30 @@ Let's plot the undecoded state of each neuron i: \(\vec s_i\). Observe
 which neurons are active vs which aren't.
 
     \begin{Verbatim}[commandchars=\\\{\}]
-{\color{incolor}In [{\color{incolor}71}]:} \PY{n}{saving} \PY{o}{=} \PY{k+kc}{False}
-         \PY{k}{if} \PY{n}{saving}\PY{p}{:}
-             \PY{n}{pp} \PY{o}{=} \PY{n}{PdfPages}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{MZM\PYZus{}time\PYZus{}traces.pdf}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         \PY{n}{fig} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{figure}\PY{p}{(}\PY{l+m+mi}{2}\PY{p}{,} \PY{n}{figsize}\PY{o}{=}\PY{p}{(}\PY{l+m+mi}{6}\PY{p}{,}\PY{l+m+mi}{6}\PY{p}{)}\PY{p}{,} \PY{n}{dpi}\PY{o}{=}\PY{l+m+mi}{72}\PY{p}{)}
-         \PY{n}{ax} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{gca}\PY{p}{(}\PY{p}{)}
-         
-         \PY{n}{cm} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{get\PYZus{}cmap}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Paired}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)} 
-         \PY{n}{cNorm}  \PY{o}{=} \PY{n}{colors}\PY{o}{.}\PY{n}{Normalize}\PY{p}{(}\PY{n}{vmin}\PY{o}{=}\PY{l+m+mi}{0}\PY{p}{,} \PY{n}{vmax}\PY{o}{=}\PY{n}{num\PYZus{}neurons}\PY{p}{)}
-         \PY{n}{scalarMap} \PY{o}{=} \PY{n}{cmx}\PY{o}{.}\PY{n}{ScalarMappable}\PY{p}{(}\PY{n}{norm}\PY{o}{=}\PY{n}{cNorm}\PY{p}{,} \PY{n}{cmap}\PY{o}{=}\PY{n}{cm}\PY{p}{)}
-         \PY{k}{for} \PY{n}{i} \PY{o+ow}{in} \PY{n+nb}{range}\PY{p}{(}\PY{n}{num\PYZus{}neurons}\PY{p}{)}\PY{p}{:}
-             \PY{n}{colorVal} \PY{o}{=} \PY{n}{scalarMap}\PY{o}{.}\PY{n}{to\PYZus{}rgba}\PY{p}{(}\PY{n}{i}\PY{p}{)}
-             \PY{n}{plt}\PY{o}{.}\PY{n}{plot}\PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{trange}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{state\PYZus{}probe}\PY{p}{]}\PY{p}{[}\PY{p}{:}\PY{p}{,} \PY{n}{i}\PY{p}{]}\PY{o}{/}\PY{l+m+mi}{400} \PY{o}{+} \PY{p}{(}\PY{n}{i}\PY{o}{+}\PY{o}{.}\PY{l+m+mi}{5}\PY{p}{)}\PY{p}{,} \PY{n}{lw}\PY{o}{=}\PY{o}{.}\PY{l+m+mi}{5}\PY{p}{,} \PY{n}{color}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{k}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-                      \PY{n}{lw}\PY{o}{=}\PY{o}{.}\PY{l+m+mi}{5}\PY{p}{,} \PY{n}{color}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{k}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         \PY{c+c1}{\PYZsh{} plt.xlabel(\PYZsq{}Real time (ns)\PYZsq{})}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{ylabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Modulator neuron index}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{xticks}\PY{p}{(}\PY{p}{[}\PY{p}{]}\PY{p}{)}
-         \PY{n}{plt}\PY{o}{.}\PY{n}{yticks}\PY{p}{(}\PY{l+m+mi}{1} \PY{o}{+} \PY{n}{np}\PY{o}{.}\PY{n}{arange}\PY{p}{(}\PY{n}{num\PYZus{}neurons}\PY{p}{)}\PY{p}{)}
-         \PY{n}{ax}\PY{o}{.}\PY{n}{set\PYZus{}yticklabels}\PY{p}{(}\PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}yticks}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{8}\PY{p}{)}
-         \PY{k}{for} \PY{n}{s} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{spines}\PY{p}{:}
-             \PY{n}{ax}\PY{o}{.}\PY{n}{spines}\PY{p}{[}\PY{n}{s}\PY{p}{]}\PY{o}{.}\PY{n}{set\PYZus{}visible}\PY{p}{(}\PY{k+kc}{False}\PY{p}{)}
-         
-         \PY{k}{if} \PY{n}{saving}\PY{p}{:}
-             \PY{n}{pp}\PY{o}{.}\PY{n}{savefig}\PY{p}{(}\PY{p}{)}
-             \PY{n}{pp}\PY{o}{.}\PY{n}{close}\PY{p}{(}\PY{p}{)}
+{\color{incolor}In [{\color{incolor}7}]:} \PY{n}{saving} \PY{o}{=} \PY{k+kc}{False}
+        \PY{k}{if} \PY{n}{saving}\PY{p}{:}
+            \PY{n}{pp} \PY{o}{=} \PY{n}{PdfPages}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{MZM\PYZus{}time\PYZus{}traces.pdf}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        \PY{n}{fig} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{figure}\PY{p}{(}\PY{l+m+mi}{2}\PY{p}{,} \PY{n}{figsize}\PY{o}{=}\PY{p}{(}\PY{l+m+mi}{6}\PY{p}{,}\PY{l+m+mi}{6}\PY{p}{)}\PY{p}{,} \PY{n}{dpi}\PY{o}{=}\PY{l+m+mi}{72}\PY{p}{)}
+        \PY{n}{ax} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{gca}\PY{p}{(}\PY{p}{)}
+        
+        \PY{n}{cm} \PY{o}{=} \PY{n}{plt}\PY{o}{.}\PY{n}{get\PYZus{}cmap}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Paired}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)} 
+        \PY{n}{cNorm}  \PY{o}{=} \PY{n}{colors}\PY{o}{.}\PY{n}{Normalize}\PY{p}{(}\PY{n}{vmin}\PY{o}{=}\PY{l+m+mi}{0}\PY{p}{,} \PY{n}{vmax}\PY{o}{=}\PY{n}{num\PYZus{}neurons}\PY{p}{)}
+        \PY{n}{scalarMap} \PY{o}{=} \PY{n}{cmx}\PY{o}{.}\PY{n}{ScalarMappable}\PY{p}{(}\PY{n}{norm}\PY{o}{=}\PY{n}{cNorm}\PY{p}{,} \PY{n}{cmap}\PY{o}{=}\PY{n}{cm}\PY{p}{)}
+        \PY{k}{for} \PY{n}{i} \PY{o+ow}{in} \PY{n+nb}{range}\PY{p}{(}\PY{n}{num\PYZus{}neurons}\PY{p}{)}\PY{p}{:}
+            \PY{n}{colorVal} \PY{o}{=} \PY{n}{scalarMap}\PY{o}{.}\PY{n}{to\PYZus{}rgba}\PY{p}{(}\PY{n}{i}\PY{p}{)}
+            \PY{n}{plt}\PY{o}{.}\PY{n}{plot}\PY{p}{(}\PY{n}{sim}\PY{o}{.}\PY{n}{trange}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{state\PYZus{}probe}\PY{p}{]}\PY{p}{[}\PY{p}{:}\PY{p}{,} \PY{n}{i}\PY{p}{]}\PY{o}{/}\PY{n}{max\PYZus{}transmission} \PY{o}{+} \PY{p}{(}\PY{n}{i}\PY{o}{+}\PY{o}{.}\PY{l+m+mi}{5}\PY{p}{)}\PY{p}{,} 
+                     \PY{n}{lw}\PY{o}{=}\PY{o}{.}\PY{l+m+mi}{5}\PY{p}{,} \PY{n}{color}\PY{o}{=}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{k}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        \PY{c+c1}{\PYZsh{} plt.xlabel(\PYZsq{}Real time (ns)\PYZsq{})}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{ylabel}\PY{p}{(}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{Modulator neuron index}\PY{l+s+s1}{\PYZsq{}}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{12}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{xticks}\PY{p}{(}\PY{p}{[}\PY{p}{]}\PY{p}{)}
+        \PY{n}{plt}\PY{o}{.}\PY{n}{yticks}\PY{p}{(}\PY{l+m+mi}{1} \PY{o}{+} \PY{n}{np}\PY{o}{.}\PY{n}{arange}\PY{p}{(}\PY{n}{num\PYZus{}neurons}\PY{p}{)}\PY{p}{)}
+        \PY{n}{ax}\PY{o}{.}\PY{n}{set\PYZus{}yticklabels}\PY{p}{(}\PY{n}{ax}\PY{o}{.}\PY{n}{get\PYZus{}yticks}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{n}{fontsize}\PY{o}{=}\PY{l+m+mi}{8}\PY{p}{)}
+        \PY{k}{for} \PY{n}{s} \PY{o+ow}{in} \PY{n}{ax}\PY{o}{.}\PY{n}{spines}\PY{p}{:}
+            \PY{n}{ax}\PY{o}{.}\PY{n}{spines}\PY{p}{[}\PY{n}{s}\PY{p}{]}\PY{o}{.}\PY{n}{set\PYZus{}visible}\PY{p}{(}\PY{k+kc}{False}\PY{p}{)}
+        
+        \PY{k}{if} \PY{n}{saving}\PY{p}{:}
+            \PY{n}{pp}\PY{o}{.}\PY{n}{savefig}\PY{p}{(}\PY{p}{)}
+            \PY{n}{pp}\PY{o}{.}\PY{n}{close}\PY{p}{(}\PY{p}{)}
 \end{Verbatim}
 
     \begin{center}
@@ -885,19 +892,19 @@ which neurons are active vs which aren't.
     { \hspace*{\fill} \\}
     
     \begin{Verbatim}[commandchars=\\\{\}]
-{\color{incolor}In [{\color{incolor}72}]:} \PY{c+c1}{\PYZsh{} Export data for further processing in matlab.}
-         \PY{k+kn}{import} \PY{n+nn}{scipy}\PY{n+nn}{.}\PY{n+nn}{io} \PY{k}{as} \PY{n+nn}{sio}
-         \PY{k+kn}{import} \PY{n+nn}{os} 
-         \PY{n}{dir\PYZus{}path} \PY{o}{=} \PY{n}{os}\PY{o}{.}\PY{n}{path}\PY{o}{.}\PY{n}{dirname}\PY{p}{(}\PY{n}{os}\PY{o}{.}\PY{n}{getcwd}\PY{p}{(}\PY{p}{)}\PY{p}{)}
-         
-         \PY{n}{dataDir} \PY{o}{=} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lightwave\PYZus{}stuff/discreteTimeLorenzFiles/ctrnn data/}\PY{l+s+s1}{\PYZsq{}}
-         \PY{n}{fname} \PY{o}{=} \PY{n}{os}\PY{o}{.}\PY{n}{path}\PY{o}{.}\PY{n}{join}\PY{p}{(}\PY{n}{dir\PYZus{}path}\PY{p}{,} \PY{n}{dataDir}\PY{p}{,} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lorenz\PYZus{}signals.mat}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
-         \PY{n}{sio}\PY{o}{.}\PY{n}{savemat}\PY{p}{(}\PY{n}{fname}\PY{p}{,} \PY{p}{\PYZob{}}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{time}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{n}{sim}\PY{o}{.}\PY{n}{trange}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{x}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{variable\PYZus{}probe}\PY{p}{]}\PY{o}{.}\PY{n}{T}\PY{p}{\PYZcb{}}\PY{p}{)}
-         \PY{n}{sio}\PY{o}{.}\PY{n}{whosmat}\PY{p}{(}\PY{n}{fname}\PY{p}{)}
+{\color{incolor}In [{\color{incolor}8}]:} \PY{c+c1}{\PYZsh{} Export data for further processing in matlab.}
+        \PY{k+kn}{import} \PY{n+nn}{scipy}\PY{n+nn}{.}\PY{n+nn}{io} \PY{k}{as} \PY{n+nn}{sio}
+        \PY{k+kn}{import} \PY{n+nn}{os} 
+        \PY{n}{dir\PYZus{}path} \PY{o}{=} \PY{n}{os}\PY{o}{.}\PY{n}{path}\PY{o}{.}\PY{n}{dirname}\PY{p}{(}\PY{n}{os}\PY{o}{.}\PY{n}{getcwd}\PY{p}{(}\PY{p}{)}\PY{p}{)}
+        
+        \PY{n}{dataDir} \PY{o}{=} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lightwave\PYZus{}stuff/discreteTimeLorenzFiles/ctrnn data/}\PY{l+s+s1}{\PYZsq{}}
+        \PY{n}{fname} \PY{o}{=} \PY{n}{os}\PY{o}{.}\PY{n}{path}\PY{o}{.}\PY{n}{join}\PY{p}{(}\PY{n}{dir\PYZus{}path}\PY{p}{,} \PY{n}{dataDir}\PY{p}{,} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{lorenz\PYZus{}signals.mat}\PY{l+s+s1}{\PYZsq{}}\PY{p}{)}
+        \PY{n}{sio}\PY{o}{.}\PY{n}{savemat}\PY{p}{(}\PY{n}{fname}\PY{p}{,} \PY{p}{\PYZob{}}\PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{time}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{n}{sim}\PY{o}{.}\PY{n}{trange}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{l+s+s1}{\PYZsq{}}\PY{l+s+s1}{x}\PY{l+s+s1}{\PYZsq{}}\PY{p}{:}\PY{n}{sim}\PY{o}{.}\PY{n}{data}\PY{p}{[}\PY{n}{variable\PYZus{}probe}\PY{p}{]}\PY{o}{.}\PY{n}{T}\PY{p}{\PYZcb{}}\PY{p}{)}
+        \PY{n}{sio}\PY{o}{.}\PY{n}{whosmat}\PY{p}{(}\PY{n}{fname}\PY{p}{)}
 \end{Verbatim}
 
             \begin{Verbatim}[commandchars=\\\{\}]
-{\color{outcolor}Out[{\color{outcolor}72}]:} [('time', (1, 52000), 'double'), ('x', (3, 52000), 'double')]
+{\color{outcolor}Out[{\color{outcolor}8}]:} [('time', (1, 52000), 'double'), ('x', (3, 52000), 'double')]
 \end{Verbatim}
         
     \begin{Verbatim}[commandchars=\\\{\}]

@@ -54,10 +54,11 @@ for i = 1:numTests
 		c(1,:) = cmap(1,:);
 		c(2,:) = cmap(5,:) + [-.2,.0,.3] - .05*ones(1,3);
 		c(3,:) = cmap(2,:);
-        scale(1,1) = .9;
-		scale(2,1) = .7;
-		scale(3,1) = .7;
-        scale = scale * .9;
+%         scale(1,1) = .9;
+% 		scale(2,1) = .7;
+% 		scale(3,1) = .7;
+%         scale = scale * .9;
+        scale = ones(3,1);
         
         % plotting data cells
         tPlt = {goodDt*(1:maxInd)}; % in us
@@ -71,7 +72,8 @@ for i = 1:numTests
         end
         
          % scaling and limits for both plots
-		lim = max(max([xPlt{:}])) * [-1,1] + .2;
+		lim = max(max([xPlt{:}])) + .2;
+        lim = max(lim, 30.1) * [-1,1];
         tks = [-30, 0, 30];
         
         % Time trace plot

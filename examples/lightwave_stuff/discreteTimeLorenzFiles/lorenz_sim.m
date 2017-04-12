@@ -12,9 +12,9 @@ assert(isa(dt, 'double'));
 % The values of the global parameters are
 %global SIGMA RHO BETA
 s = 1.0;
-SIGMA = (6.5) * s;
+SIGMA = (10) * s;
 BETA = (8./3.) * s;
-RHO = (18.) * s;
+RHO = (28.) * s;
 
 %y0 = ([rand*30+5, rand*35-30, rand*40-5]);
 y0 = rand(1,3);
@@ -38,7 +38,7 @@ for i = 1:tmax/unroller
 for j = coder.unroll(1:unroller)
 	dy = [SIGMA * (y(2) - y(1)); ...
 		(-y(1)*y(3) - y(2)); ...
-		y(1)*y(2) - BETA*(y(3) + RHO) - RHO];
+		y(1)*y(2) - BETA*(y(3) + RHO)];
 	y = y + dt * dy;
 	x=x+1;
 	Y(:,x) = y;

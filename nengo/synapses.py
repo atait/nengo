@@ -13,6 +13,7 @@ from nengo.params import (
 from nengo.rc import rc
 from nengo.utils.filter_design import cont2discrete, tf2ss
 from nengo.utils.numpy import as_shape, is_number
+from numba import njit
 
 
 class Synapse(Process):
@@ -349,10 +350,15 @@ class LinearFilter(Synapse):
             self.a = A.item()
             self.b = C.item() * B.item()
 
+        @staticmethod
+        @njit(cache=True)
+        def jit_compiled_mult(a, b, X, s):
+            X *= a
+            X += b * s
+            return X[0]
+
         def __call__(self, t, signal):
-            self.X *= self.a
-            self.X += self.b * signal
-            return self.X[0]
+            return self.jit_compiled_mult(self.a, self.b, self.X, signal)
 
         @classmethod
         def check(cls, A, B, C, D, X):

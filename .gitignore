@@ -29,4 +29,3 @@ docs/examples/**/*.py  # For .ipynb examples converted to .py
 docs/.doctrees
 
 nengo/__pycache__
-examples/lightwave_stuff/discreteTimeLorenzFiles/*

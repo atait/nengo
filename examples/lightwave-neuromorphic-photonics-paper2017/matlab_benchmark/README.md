@@ -2,15 +2,15 @@
 This is a benchmark, so it's purpose is to plot the CTRNN and discrete time data in a way that can be compared, in addition to evaluating the discrete time performance.
 
 ## What is here:
-1. `lorenz_sim` - minimal script that performs the simulation
+1. `lorenz_sim` - efficient script that performs the simulation
 2. `lorenz_sim_mex` - the optimized version of `lorenz_sim`
-3. `lorenz_eval` - runs many times, doing various evaluating/plotting
+3. `lorenz_eval` - various evaluating/plotting, handling the parameters that will be sent to the simulator
 
 ## Setting up
 This is happening mainly in MATLAB because it has powerful compiler libraries.
 
 #### Generate some CTRNN data
-Run the `Fourier Sinusoid Neuron_SciRep` notebook. This saves a .mat file with the CTRNN data. The `ctrnn data/*.mat` directory is in the .gitignore.
+Run the `Fourier Sinusoid Neuron_SciRep` notebook. This saves a .mat file with the nengo CTRNN data in `nengo_results.mat`.
 
 #### Compile the optimized simulator (optional)
 If you are just plotting paper figures, this is optional. The optimized version is only needed for performance analysis (plottype=2, below).

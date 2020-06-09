@@ -1,9 +1,0 @@
-[MESSAGES CONTROL]
-
-disable = all
-enable = W0231
-
-
-[REPORTS]
-
-reports = no

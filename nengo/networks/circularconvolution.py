@@ -1,14 +1,14 @@
+import warnings
+
 import numpy as np
 
 import nengo
-from nengo.exceptions import ValidationError
+from nengo.exceptions import ObsoleteError, ValidationError
 from nengo.networks.product import Product
-from nengo.utils.compat import range
-from nengo.utils.magic import memoize
 
 
 def circconv(a, b, invert_a=False, invert_b=False, axis=-1):
-    """A reference Numpy implementation of circular convolution"""
+    """A reference Numpy implementation of circular convolution."""
     A = np.fft.fft(a, axis=axis)
     B = np.fft.fft(b, axis=axis)
     if invert_a:
@@ -18,7 +18,6 @@ def circconv(a, b, invert_a=False, invert_b=False, axis=-1):
     return np.fft.ifft(A * B, axis=axis).real
 
 
-@memoize
 def transform_in(dims, align, invert):
     """Create a transform to map the input into the Fourier domain.
 
@@ -34,8 +33,8 @@ def transform_in(dims, align, invert):
     invert : bool
         Whether to reverse the order of elements.
     """
-    if align not in ('A', 'B'):
-        raise ValidationError("'align' must be either 'A' or 'B'", 'align')
+    if align not in ("A", "B"):
+        raise ValidationError("'align' must be either 'A' or 'B'", "align")
 
     dims2 = 4 * (dims // 2 + 1)
     tr = np.zeros((dims2, dims))
@@ -43,7 +42,7 @@ def transform_in(dims, align, invert):
 
     for i in range(dims2):
         row = dft[i // 4] if not invert else dft[i // 4].conj()
-        if align == 'A':
+        if align == "A":
             tr[i] = row.real if i % 2 == 0 else row.imag
         else:  # align == 'B'
             tr[i] = row.real if i % 4 == 0 or i % 4 == 3 else row.imag
@@ -53,18 +52,18 @@ def transform_in(dims, align, invert):
 
 
 def transform_out(dims):
-    dims2 = (dims // 2 + 1)
+    dims2 = dims // 2 + 1
     tr = np.zeros((dims2, 4, dims))
     idft = dft_half(dims).conj()
 
     for i in range(dims2):
-        row = idft[i] if i == 0 or 2*i == dims else 2*idft[i]
+        row = idft[i] if i == 0 or 2 * i == dims else 2 * idft[i]
         tr[i, 0] = row.real
         tr[i, 1] = -row.real
         tr[i, 2] = -row.imag
         tr[i, 3] = -row.imag
 
-    tr = tr.reshape(4*dims2, dims)
+    tr = tr.reshape(4 * dims2, dims)
     remove_imag_rows(tr)
     # IDFT has a 1/D scaling factor
     tr /= dims
@@ -73,7 +72,7 @@ def transform_out(dims):
 
 
 def remove_imag_rows(tr):
-    """Throw away imaginary row we don't need (since they're zero)"""
+    """Throw away imaginary rows we do not need (they are zero)."""
     i = np.arange(tr.shape[0])
     if tr.shape[1] % 2 == 0:
         tr = tr[(i == 0) | (i > 3) & (i < len(i) - 3)]
@@ -81,16 +80,14 @@ def remove_imag_rows(tr):
         tr = tr[(i == 0) | (i > 3)]
 
 
-@memoize
 def dft_half(n):
     x = np.arange(n)
     w = np.arange(n // 2 + 1)
-    return np.exp((-2.j * np.pi / n) * (w[:, None] * x[None, :]))
+    return np.exp((-2.0j * np.pi / n) * (w[:, None] * x[None, :]))
 
 
-def CircularConvolution(n_neurons, dimensions, invert_a=False, invert_b=False,
-                        input_magnitude=1.0, net=None):
-    """Compute the circular convolution of two vectors.
+class CircularConvolution(nengo.Network):
+    r"""Compute the circular convolution of two vectors.
 
     The circular convolution :math:`c` of vectors :math:`a` and :math:`b`
     is given by
@@ -113,50 +110,49 @@ def CircularConvolution(n_neurons, dimensions, invert_a=False, invert_b=False,
     dimensions : int
         The number of dimensions of the input and output vectors.
 
-    invert_a, invert_b : bool, optional (Default: False, False)
+    invert_a, invert_b : bool, optional
         Whether to reverse the order of elements in either
         the first input (``invert_a``) or the second input (``invert_b``).
         Flipping the second input will make the network perform circular
         correlation instead of circular convolution.
-    input_magnitude : float, optional (Default: 1.0)
+    input_magnitude : float, optional
         The expected magnitude of the vectors to be convolved.
         This value is used to determine the radius of the ensembles
         computing the element-wise product.
-    net : Network, optional (Default: None)
-        A network in which the network components will be built.
-        This is typically used to provide a custom set of Nengo object
-        defaults through modifying ``net.config``.
-
-    Returns
-    -------
-    net : Network
-        The newly built product network, or the provided ``net``.
+    **kwargs
+        Keyword arguments passed through to ``nengo.Network``
+        like 'label' and 'seed'.
 
     Attributes
     ----------
-    net.A : Node
+    input_a : Node
         The first vector to be convolved.
-    net.B : Node
+    input_b : Node
         The second vector to be convolved.
-    net.product : Network
+    product : Network
         Network created with `.Product` to do the element-wise product
         of the :math:`DFT` components.
-    net.output : Node
+    output : Node
         The resulting convolved vector.
 
     Examples
     --------
 
     A basic example computing the circular convolution of two 10-dimensional
-    vectors represented by ensemble arrays::
+    vectors represented by ensemble arrays:
 
-        A = EnsembleArray(50, n_ensembles=10)
-        B = EnsembleArray(50, n_ensembles=10)
-        C = EnsembleArray(50, n_ensembles=10)
-        cconv = nengo.networks.CircularConvolution(50, dimensions=10)
-        nengo.Connection(A.output, cconv.A)
-        nengo.Connection(B.output, cconv.B)
-        nengo.Connection(cconv.output, C.input)
+    .. testcode::
+
+       from nengo.networks import CircularConvolution, EnsembleArray
+
+       with nengo.Network():
+           A = EnsembleArray(50, n_ensembles=10)
+           B = EnsembleArray(50, n_ensembles=10)
+           C = EnsembleArray(50, n_ensembles=10)
+           cconv = CircularConvolution(50, dimensions=10)
+           nengo.Connection(A.output, cconv.input_a)
+           nengo.Connection(B.output, cconv.input_b)
+           nengo.Connection(cconv.output, C.input)
 
     Notes
     -----
@@ -185,23 +181,49 @@ def CircularConvolution(n_neurons, dimensions, invert_a=False, invert_b=False,
     only the real part of :math:`c` since the imaginary part
     is analytically zero.
     """
-    if net is None:
-        net = nengo.Network("Circular Convolution")
 
-    tr_a = transform_in(dimensions, 'A', invert_a)
-    tr_b = transform_in(dimensions, 'B', invert_b)
-    tr_out = transform_out(dimensions)
+    def __init__(
+        self,
+        n_neurons,
+        dimensions,
+        invert_a=False,
+        invert_b=False,
+        input_magnitude=1.0,
+        **kwargs
+    ):
+        if "net" in kwargs:
+            raise ObsoleteError("The 'net' argument is no longer supported.")
+        kwargs.setdefault("label", "Circular convolution")
+        super().__init__(**kwargs)
 
-    with net:
-        net.A = nengo.Node(size_in=dimensions, label="A")
-        net.B = nengo.Node(size_in=dimensions, label="B")
-        net.product = Product(n_neurons, tr_out.shape[1],
-                              input_magnitude=input_magnitude * 2)
-        net.output = nengo.Node(size_in=dimensions, label="output")
+        tr_a = transform_in(dimensions, "A", invert_a)
+        tr_b = transform_in(dimensions, "B", invert_b)
+        tr_out = transform_out(dimensions)
 
-        nengo.Connection(net.A, net.product.A, transform=tr_a, synapse=None)
-        nengo.Connection(net.B, net.product.B, transform=tr_b, synapse=None)
-        nengo.Connection(net.product.output, net.output,
-                         transform=tr_out, synapse=None)
+        with self:
+            self.input_a = nengo.Node(size_in=dimensions, label="input_a")
+            self.input_b = nengo.Node(size_in=dimensions, label="input_b")
+            self.product = Product(
+                n_neurons, tr_out.shape[1], input_magnitude=input_magnitude * 2
+            )
+            self.output = nengo.Node(size_in=dimensions, label="output")
 
-    return net
+            nengo.Connection(
+                self.input_a, self.product.input_a, transform=tr_a, synapse=None
+            )
+            nengo.Connection(
+                self.input_b, self.product.input_b, transform=tr_b, synapse=None
+            )
+            nengo.Connection(
+                self.product.output, self.output, transform=tr_out, synapse=None
+            )
+
+    @property
+    def A(self):
+        warnings.warn(DeprecationWarning("Use 'input_a' instead of 'A'"))
+        return self.input_a
+
+    @property
+    def B(self):
+        warnings.warn(DeprecationWarning("Use 'input_b' instead of 'B'."))
+        return self.input_b

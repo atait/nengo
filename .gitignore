@@ -7,9 +7,7 @@ dist
 *~
 *.bak
 *.swp
-nengo.simulator.logs/
-nengo.simulator.analytics/
-nengo.simulator.plots/
+plots/
 log.txt
 .ipynb_checkpoints/
 .cache
@@ -22,6 +20,12 @@ Vagrantfile
 .coverage
 htmlcov
 
-examples/lightwave_stuff/discreteTimeLorenzFiles/ctrnn\ data/*.mat
-examples/lightwave_stuff/discreteTimeLorenzFiles/codegen/
-examples/lightwave_stuff/discreteTimeLorenzFiles/*.mex*
+*.dist-info/
+.vscode
+.idea
+.pytest_cache/
+docs/examples/**/*.py  # For .ipynb examples converted to .py
+.ci/*.sh
+docs/.doctrees
+
+examples/lightwave_stuff/discreteTimeLorenzFiles/*

@@ -5,7 +5,7 @@ import numpy as np
 import nengo
 import nengo.utils.numpy as npext
 from nengo.exceptions import ValidationError
-from nengo.utils.compat import is_iterable
+from nengo.spa.vocab import Vocabulary, VocabularyParam
 
 
 def enable_spa_params(model):
@@ -16,11 +16,11 @@ def enable_spa_params(model):
     model : Network
         Model to activate SPA specific parameters for.
     """
-    from nengo.spa.vocab import VocabularyParam
 
     for obj_type in [nengo.Node, nengo.Ensemble]:
         model.config[obj_type].set_param(
-            'vocab', VocabularyParam('vocab', optional=True))
+            "vocab", VocabularyParam("vocab", default=None, optional=True)
+        )
 
 
 def similarity(data, vocab, normalize=False):
@@ -37,18 +37,18 @@ def similarity(data, vocab, normalize=False):
     vocab: Vocabulary or array_like
         Vocabulary (or list of vectors) to use to calculate
         the similarity values.
-    normalize : bool, optional (Default: False)
+    normalize : bool, optional
         Whether to normalize all vectors, to compute the cosine similarity.
     """
-    from nengo.spa.vocab import Vocabulary
 
     if isinstance(vocab, Vocabulary):
         vectors = vocab.vectors
-    elif is_iterable(vocab):
+    elif npext.is_iterable(vocab):
         vectors = np.array(vocab, copy=False, ndmin=2)
     else:
-        raise ValidationError("%r object is not a valid vocabulary"
-                              % (vocab.__class__.__name__), attr='vocab')
+        raise ValidationError(
+            "%r object is not a valid vocabulary" % (type(vocab).__name__), attr="vocab"
+        )
 
     data = np.array(data, copy=False, ndmin=2)
     dots = np.dot(data, vectors.T)

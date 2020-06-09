@@ -34,11 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
 
-import nengo.utils.numpy as npext
 from nengo.exceptions import BuildError, SimulationError
+from nengo.utils.functions import function_name
+import nengo.utils.numpy as npext
 
 
-class Operator(object):
+class Operator:
     """Base class for operator instances understood by Nengo.
 
     During one simulator timestep, a `.Signal` can experience
@@ -60,14 +61,14 @@ class Operator(object):
     and which of these four types of manipulations is done to each signal
     so that the simulator can order all of the operators properly.
 
-    .. note:: There are intentionally no default values for the
+    .. note:: There are intentionally no valid default values for the
               `~.Operator.reads`, `~.Operator.sets`, `~.Operator.incs`,
               and `~.Operator.updates` properties to ensure that subclasses
               explicitly set these values.
 
     Parameters
     ----------
-    tag : str, optional (Default: None)
+    tag : str, optional
         A label associated with the operator, for debugging purposes.
 
     Attributes
@@ -79,19 +80,28 @@ class Operator(object):
     def __init__(self, tag=None):
         self.tag = tag
 
+        self._sets = None
+        self._incs = None
+        self._reads = None
+        self._updates = None
+
     def __repr__(self):
         return "<%s%s at 0x%x>" % (
-            self.__class__.__name__, self._tagstr(), id(self))
+            type(self).__name__,
+            "" if self.tag is None else " %r" % self.tag,
+            id(self),
+        )
 
     def __str__(self):
-        strs = (s for s in (self._descstr(), self._tagstr()) if s)
-        return "%s{%s}" % (self.__class__.__name__, ' '.join(strs))
+        return "%s{%s%s}" % (
+            type(self).__name__,
+            self._descstr,
+            "" if self.tag is None else " %r" % self.tag,
+        )
 
+    @property
     def _descstr(self):
-        return ''
-
-    def _tagstr(self):
-        return ('"%s"' % self.tag) if self.tag is not None else ''
+        return ""
 
     @property
     def all_signals(self):
@@ -194,7 +204,7 @@ class TimeUpdate(Operator):
         The signal associated with the integer step counter.
     time : Signal
         The signal associated with the time (a float, in seconds).
-    tag : str, optional (Default: None)
+    tag : str, optional
         A label associated with the operator, for debugging purposes.
 
     Attributes
@@ -215,14 +225,19 @@ class TimeUpdate(Operator):
     """
 
     def __init__(self, step, time, tag=None):
-        super(TimeUpdate, self).__init__(tag=tag)
-        self.step = step
-        self.time = time
-
+        super().__init__(tag=tag)
         self.sets = [step, time]
         self.incs = []
         self.reads = []
         self.updates = []
+
+    @property
+    def step(self):
+        return self.sets[0]
+
+    @property
+    def time(self):
+        return self.sets[1]
 
     def make_step(self, signals, dt, rng):
         step = signals[self.step]
@@ -235,52 +250,6 @@ class TimeUpdate(Operator):
         return step_timeupdate
 
 
-class PreserveValue(Operator):
-    """Marks a signal as ``set`` for the graph checker.
-
-    This operator does no computation. It simply marks a signal as ``set``,
-    allowing us to apply other ops to signals that we want to preserve their
-    value across multiple time steps. It is used primarily for learning rules.
-
-    Parameters
-    ----------
-    dst : Signal
-        The signal whose value we want to preserve.
-    tag : str, optional (Default: None)
-        A label associated with the operator, for debugging purposes.
-
-    Attributes
-    ----------
-    dst : Signal
-        The signal whose value we want to preserve.
-    tag : str or None
-        A label associated with the operator, for debugging purposes.
-
-    Notes
-    -----
-    1. sets ``[dst]``
-    2. incs ``[]``
-    3. reads ``[]``
-    4. updates ``[]``
-    """
-    def __init__(self, dst, tag=None):
-        super(PreserveValue, self).__init__(tag=tag)
-        self.dst = dst
-
-        self.sets = [dst]
-        self.incs = []
-        self.reads = []
-        self.updates = []
-
-    def _descstr(self):
-        return str(self.dst)
-
-    def make_step(self, signals, dt, rng):
-        def step_preservevalue():
-            pass
-        return step_preservevalue
-
-
 class Reset(Operator):
     """Assign a constant value to a Signal.
 
@@ -290,9 +259,9 @@ class Reset(Operator):
     ----------
     dst : Signal
         The Signal to reset.
-    value : float, optional (Default: 0)
+    value : float, optional
         The constant value to which ``dst`` is set.
-    tag : str, optional (Default: None)
+    tag : str, optional
         A label associated with the operator, for debugging purposes.
 
     Attributes
@@ -313,8 +282,7 @@ class Reset(Operator):
     """
 
     def __init__(self, dst, value=0, tag=None):
-        super(Reset, self).__init__(tag=tag)
-        self.dst = dst
+        super().__init__(tag=tag)
         self.value = float(value)
 
         self.sets = [dst]
@@ -322,6 +290,11 @@ class Reset(Operator):
         self.reads = []
         self.updates = []
 
+    @property
+    def dst(self):
+        return self.sets[0]
+
+    @property
     def _descstr(self):
         return str(self.dst)
 
@@ -331,69 +304,19 @@ class Reset(Operator):
 
         def step_reset():
             target[...] = value
+
         return step_reset
 
 
 class Copy(Operator):
-    """Assign the value of one signal to another.
+    """Assign the value of one signal to another, with optional slicing.
 
-    Implements ``dst[...] = src``.
+    Implements:
 
-    Parameters
-    ----------
-    src : Signal
-        The signal that will be copied (read).
-    dst : Signal
-        The signal that will be assigned to (set).
-    tag : str, optional (Default: None)
-        A label associated with the operator, for debugging purposes.
-
-    Attributes
-    ----------
-    dst : Signal
-        The signal that will be assigned to (set).
-    src : Signal
-        The signal that will be copied (read).
-    tag : str or None
-        A label associated with the operator, for debugging purposes.
-
-    Notes
-    -----
-    1. sets ``[dst]``
-    2. incs ``[]``
-    3. reads ``[src]``
-    4. updates ``[]``
-    """
-
-    def __init__(self, src, dst, tag=None):
-        super(Copy, self).__init__(tag=tag)
-        self.src = src
-        self.dst = dst
-
-        self.sets = [dst]
-        self.incs = []
-        self.reads = [src]
-        self.updates = []
-
-    def _descstr(self):
-        return '%s -> %s' % (self.src, self.dst)
-
-    def make_step(self, signals, dt, rng):
-        src = signals[self.src]
-        dst = signals[self.dst]
-
-        def step_copy():
-            dst[...] = src
-        return step_copy
-
-
-class SlicedCopy(Operator):
-    """Assign the value of a slice of one signal to another slice.
-
-    Implements ``dst[dst_slice] = src[src_slice]``.
-
-    This operator can also implement ``dst[dst_slice] += src[src_slice]``
-    using the parameter ``inc``.
+    - ``dst[:] = src``
+    - ``dst[dst_slice] = src[src_slice]``
+      (when ``dst_slice`` or ``src_slice`` is not None)
+    - ``dst[dst_slice] += src[src_slice]`` (when ``inc=True``)
 
     Parameters
     ----------
@@ -401,25 +324,25 @@ class SlicedCopy(Operator):
         The signal that will be assigned to (set).
     src : Signal
         The signal that will be copied (read).
-    dst_slice : slice or Ellipsis, optional (Default: Ellipsis)
-        Slice associated with ``dst``.
-    src_slice : slice or Ellipsis, optional (Default: Ellipsis)
-        Slice associated with ``src``
-    inc : bool, optional (Default: False)
+    dst_slice : slice or list, optional
+        Slice or list of indices associated with ``dst``.
+    src_slice : slice or list, optional
+        Slice or list of indices associated with ``src``
+    inc : bool, optional
         Whether this should be an increment rather than a copy.
-    tag : str, optional (Default: None)
+    tag : str, optional
         A label associated with the operator, for debugging purposes.
 
     Attributes
     ----------
     dst : Signal
         The signal that will be assigned to (set).
-    dst_slice : list or Ellipsis
+    dst_slice : list or None
         Indices associated with ``dst``.
     src : Signal
         The signal that will be copied (read).
-    src_slice : list or Ellipsis
-        Indices associated with ``src``
+    src_slice : list or None
+        Indices associated with ``src``.
     tag : str or None
         A label associated with the operator, for debugging purposes.
 
@@ -431,20 +354,17 @@ class SlicedCopy(Operator):
     4. updates ``[]``
     """
 
-    def __init__(self, src, dst, src_slice=Ellipsis, dst_slice=Ellipsis,
-                 inc=False, tag=None):
-        super(SlicedCopy, self).__init__(tag=tag)
+    def __init__(self, src, dst, src_slice=None, dst_slice=None, inc=False, tag=None):
+        super().__init__(tag=tag)
 
         if isinstance(src_slice, slice):
             src = src[src_slice]
-            src_slice = Ellipsis
+            src_slice = None
         if isinstance(dst_slice, slice):
             dst = dst[dst_slice]
-            dst_slice = Ellipsis
-        # ^ src_slice and dst_slice are now either lists of indices or Ellipsis
+            dst_slice = None
+        # ^ src_slice and dst_slice are now either lists of indices or None
 
-        self.src = src
-        self.dst = dst
         self.src_slice = src_slice
         self.dst_slice = dst_slice
         self.inc = inc
@@ -454,23 +374,63 @@ class SlicedCopy(Operator):
         self.reads = [src]
         self.updates = []
 
+    @property
+    def dst(self):
+        return self.incs[0] if self.inc else self.sets[0]
+
+    @property
+    def src(self):
+        return self.reads[0]
+
+    @property
     def _descstr(self):
-        return '%s[%s] -> %s[%s], inc=%s' % (
-            self.src, self.src_slice, self.dst, self.dst_slice, self.inc)
+        def sigstring(sig, sl):
+            return "%s%s" % (sig, ("[%s]" % (sl,)) if sl is not None else "")
+
+        return "%s -> %s, inc=%s" % (
+            sigstring(self.src, self.src_slice),
+            sigstring(self.dst, self.dst_slice),
+            self.inc,
+        )
 
     def make_step(self, signals, dt, rng):
         src = signals[self.src]
         dst = signals[self.dst]
-        src_slice = self.src_slice
-        dst_slice = self.dst_slice
+        src_slice = self.src_slice if self.src_slice is not None else Ellipsis
+        dst_slice = self.dst_slice if self.dst_slice is not None else Ellipsis
         inc = self.inc
 
-        def step_slicedcopy():
-            if inc:
+        # If there are repeated indices in dst_slice, special handling needed.
+        repeats = False
+        if npext.is_array_like(dst_slice):
+            # copy because we might modify it
+            dst_slice = np.array(dst_slice)
+            if dst_slice.dtype.kind != "b":
+                # get canonical, positive indices first
+                dst_slice[dst_slice < 0] += len(dst)
+                repeats = len(np.unique(dst_slice)) < len(dst_slice)
+
+        if inc and repeats:
+
+            def step_copy():
+                np.add.at(dst, dst_slice, src[src_slice])
+
+        elif inc:
+
+            def step_copy():
                 dst[dst_slice] += src[src_slice]
-            else:
+
+        elif repeats:
+            raise BuildError(
+                "%s: Cannot have repeated indices in "
+                "``dst_slice`` when copy is not an increment" % self
+            )
+        else:
+
+            def step_copy():
                 dst[dst_slice] = src[src_slice]
-        return step_slicedcopy
+
+        return step_copy
 
 
 class ElementwiseInc(Operator):
@@ -486,7 +446,7 @@ class ElementwiseInc(Operator):
         The second signal to be multiplied.
     Y : Signal
         The signal to be incremented.
-    tag : str, optional (Default: None)
+    tag : str, optional
         A label associated with the operator, for debugging purposes.
 
     Attributes
@@ -509,18 +469,27 @@ class ElementwiseInc(Operator):
     """
 
     def __init__(self, A, X, Y, tag=None):
-        super(ElementwiseInc, self).__init__(tag=tag)
-        self.A = A
-        self.X = X
-        self.Y = Y
-
+        super().__init__(tag=tag)
         self.sets = []
         self.incs = [Y]
         self.reads = [A, X]
         self.updates = []
 
+    @property
+    def A(self):
+        return self.reads[0]
+
+    @property
+    def X(self):
+        return self.reads[1]
+
+    @property
+    def Y(self):
+        return self.incs[0]
+
+    @property
     def _descstr(self):
-        return '%s, %s -> %s' % (self.A, self.X, self.Y)
+        return "%s, %s -> %s" % (self.A, self.X, self.Y)
 
     def make_step(self, signals, dt, rng):
         A = signals[self.A]
@@ -534,12 +503,14 @@ class ElementwiseInc(Operator):
         assert all(len(s) == 2 for s in [Ashape, Xshape, Yshape])
         for da, dx, dy in zip(Ashape, Xshape, Yshape):
             if not (da in [1, dy] and dx in [1, dy] and max(da, dx) == dy):
-                raise BuildError("Incompatible shapes in ElementwiseInc: "
-                                 "Trying to do %s += %s * %s" %
-                                 (Yshape, Ashape, Xshape))
+                raise BuildError(
+                    "Incompatible shapes in ElementwiseInc: "
+                    "Trying to do %s += %s * %s" % (Yshape, Ashape, Xshape)
+                )
 
         def step_elementwiseinc():
             Y[...] += A * X
+
         return step_elementwiseinc
 
 
@@ -564,11 +535,12 @@ def reshape_dot(A, X, Y, tag=None):
         incshape = ashape[:-1] + xshape[:-2] + xshape[-1:]
 
     if (badshape or incshape != Y.shape) and incshape != ():
-        raise BuildError("shape mismatch in %s: %s x %s -> %s"
-                         % (tag, A.shape, X.shape, Y.shape))
+        raise BuildError(
+            "shape mismatch in %s: %s x %s -> %s" % (tag, A.shape, X.shape, Y.shape)
+        )
 
     # Reshape to handle case when np.dot(A, X) and Y are both scalars
-    return (np.dot(A, X)).size == Y.size == 1
+    return A.dot(X).size == Y.size == 1
 
 
 class DotInc(Operator):
@@ -587,7 +559,7 @@ class DotInc(Operator):
         The second signal to be multiplied (a vector).
     Y : Signal
         The signal to be incremented.
-    tag : str, optional (Default: None)
+    tag : str, optional
         A label associated with the operator, for debugging purposes.
 
     Attributes
@@ -609,37 +581,150 @@ class DotInc(Operator):
     4. updates ``[]``
     """
 
-    def __init__(self, A, X, Y, tag=None):
-        super(DotInc, self).__init__(tag=tag)
+    def __init__(self, A, X, Y, reshape=None, tag=None):
+        super().__init__(tag=tag)
 
         if X.ndim >= 2 and any(d > 1 for d in X.shape[1:]):
             raise BuildError("X must be a column vector")
         if Y.ndim >= 2 and any(d > 1 for d in Y.shape[1:]):
             raise BuildError("Y must be a column vector")
 
-        self.A = A
-        self.X = X
-        self.Y = Y
+        self.reshape = reshape
+        if self.reshape is None:
+            self.reshape = reshape_dot(
+                A.initial_value, X.initial_value, Y.initial_value, self.tag
+            )
 
         self.sets = []
         self.incs = [Y]
         self.reads = [A, X]
         self.updates = []
 
+    @property
+    def A(self):
+        return self.reads[0]
+
+    @property
+    def X(self):
+        return self.reads[1]
+
+    @property
+    def Y(self):
+        return self.incs[0]
+
+    @property
     def _descstr(self):
-        return '%s, %s -> %s' % (self.A, self.X, self.Y)
+        return "%s, %s -> %s" % (self.A, self.X, self.Y)
 
     def make_step(self, signals, dt, rng):
         X = signals[self.X]
         A = signals[self.A]
         Y = signals[self.Y]
-        reshape = reshape_dot(A, X, Y, self.tag)
+
+        if self.reshape:
+
+            def step_dotinc_reshape():
+                Y[...] += A.dot(X).reshape(Y.shape)
+
+            return step_dotinc_reshape
+
+        else:
+
+            def step_dotinc():
+                Y[...] += A.dot(X)
+
+            return step_dotinc
+
+
+class SparseDotInc(DotInc):
+    """Like `.DotInc` but ``A`` is a sparse matrix.
+
+    .. versionadded:: 3.0.0
+    """
+
+    def __init__(self, A, X, Y, tag=None):
+        if not A.sparse:
+            raise BuildError("%s: A must be a sparse Signal")
+
+        # Disallow reshaping
+        super().__init__(A, X, Y, reshape=False, tag=tag)
+
+
+class BsrDotInc(DotInc):
+    """Increment signal Y by dot(A, X) using block sparse row format.
+
+    Implements ``Y[...] += np.dot(A, X)``, where ``A`` is an instance
+    of `scipy.sparse.bsr_matrix`.
+
+    .. note:: Requires SciPy.
+
+    .. note:: Currently, this only supports matrix-vector multiplies
+              for compatibility with Nengo OCL.
+
+    Parameters
+    ----------
+    A : (k, r, c) Signal
+        The signal providing the k data blocks with r rows and c columns.
+    X : (k * c) Signal
+        The signal providing the k column vectors to multiply with.
+    Y : (k * r) Signal
+        The signal providing the k column vectors to update.
+    indices : ndarray
+        Column indices, see `scipy.sparse.bsr_matrix` for details.
+    indptr : ndarray
+        Column index pointers, see `scipy.sparse.bsr_matrix` for details.
+    reshape : bool
+        Whether to reshape the result.
+    tag : str, optional
+        A label associated with the operator, for debugging purposes.
+
+    Attributes
+    ----------
+    A : (k, r, c) Signal
+        The signal providing the k data blocks with r rows and c columns.
+    indices : ndarray
+        Column indices, see `scipy.sparse.bsr_matrix` for details.
+    indptr : ndarray
+        Column index pointers, see `scipy.sparse.bsr_matrix` for details.
+    reshape : bool
+        Whether to reshape the result.
+    tag : str or None
+        A label associated with the operator, for debugging purposes.
+    X : (k * c) Signal
+        The signal providing the k column vectors to multiply with.
+    Y : (k * r) Signal
+        The signal providing the k column vectors to update.
+
+    Notes
+    -----
+    1. sets ``[]``
+    2. incs ``[Y]``
+    3. reads ``[A, X]``
+    4. updates ``[]``
+    """
+
+    def __init__(self, A, X, Y, indices, indptr, reshape=None, tag=None):
+        from scipy.sparse import bsr_matrix  # pylint: disable=import-outside-toplevel
+
+        self.bsr_matrix = bsr_matrix
+
+        super().__init__(A, X, Y, reshape=reshape, tag=tag)
+
+        self.indices = indices
+        self.indptr = indptr
+
+    def make_step(self, signals, dt, rng):
+        X = signals[self.X]
+        A = signals[self.A]
+        Y = signals[self.Y]
 
         def step_dotinc():
-            inc = np.dot(A, X)
-            if reshape:
-                inc = np.asarray(inc).reshape(Y.shape)
+            mat_A = self.bsr_matrix((A, self.indices, self.indptr))
+            inc = mat_A.dot(X)
+            if self.reshape:
+                inc = inc.reshape(Y.shape)
             Y[...] += inc
+
         return step_dotinc
 
 
@@ -664,7 +749,7 @@ class SimPyFunc(Operator):
     x : Signal or None
         An input signal to pass to ``fn``.
         If None, an input signal will not be passed to ``fn``.
-    tag : str, optional (Default: None)
+    tag : str, optional
         A label associated with the operator, for debugging purposes.
 
     Attributes
@@ -691,19 +776,33 @@ class SimPyFunc(Operator):
     """
 
     def __init__(self, output, fn, t, x, tag=None):
-        super(SimPyFunc, self).__init__(tag=tag)
-        self.output = output
+        super().__init__(tag=tag)
         self.fn = fn
-        self.t = t
-        self.x = x
+        self.t_passed = t is not None
+        self.x_passed = x is not None
 
         self.sets = [] if output is None else [output]
         self.incs = []
         self.reads = ([] if t is None else [t]) + ([] if x is None else [x])
         self.updates = []
 
+    @property
+    def output(self):
+        if len(self.sets) == 1:
+            return self.sets[0]
+        return None
+
+    @property
+    def t(self):
+        return self.reads[0] if self.t_passed else None
+
+    @property
+    def x(self):
+        return self.reads[-1] if self.x_passed else None
+
+    @property
     def _descstr(self):
-        return '%s -> %s, fn=%r' % (self.x, self.output, self.fn.__name__)
+        return "%s -> %s, fn=%r" % (self.x, self.output, function_name(self.fn))
 
     def make_step(self, signals, dt, rng):
         fn = self.fn
@@ -714,14 +813,22 @@ class SimPyFunc(Operator):
         def step_simpyfunc():
             args = (np.copy(x),) if x is not None else ()
             y = fn(t.item(), *args) if t is not None else fn(*args)
+
             if output is not None:
-                if y is None:  # required since Numpy turns None into NaN
-                    raise SimulationError(
-                        "Function %r returned None" % fn.__name__)
                 try:
+                    # required since Numpy turns None into NaN
+                    if y is None or not np.all(np.isfinite(y)):
+                        raise SimulationError(
+                            "Function %r returned non-finite value"
+                            % function_name(self.fn)
+                        )
+
                     output[...] = y
-                except ValueError:
-                    raise SimulationError("Function %r returned invalid value "
-                                          "%r" % (fn.__name__, y))
+
+                except (TypeError, ValueError):
+                    raise SimulationError(
+                        "Function %r returned a value "
+                        "%r of invalid type %r" % (function_name(self.fn), y, type(y))
+                    )
 
         return step_simpyfunc

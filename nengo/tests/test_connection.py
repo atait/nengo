@@ -6,11 +6,12 @@ import pytest
 import nengo
 import nengo.utils.numpy as npext
 from nengo.connection import ConnectionSolverParam
-from nengo.dists import UniformHypersphere
-from nengo.exceptions import ObsoleteError, ValidationError
+from nengo.dists import Choice, UniformHypersphere
+from nengo.exceptions import BuildError, ValidationError
 from nengo.solvers import LstsqL2
-from nengo.utils.functions import piecewise
-from nengo.utils.testing import allclose
+from nengo.processes import Piecewise
+from nengo.transforms import Dense, NoTransform
+from nengo.utils.testing import signals_allclose
 
 
 def test_args(nl, seed, rng):
@@ -22,87 +23,88 @@ def test_args(nl, seed, rng):
         A = nengo.Ensemble(N, dimensions=d1)
         B = nengo.Ensemble(N, dimensions=d2)
         nengo.Connection(
-            A, B,
+            A,
+            B,
             eval_points=rng.normal(size=(500, d1)),
             synapse=0.01,
             function=np.sin,
-            transform=rng.normal(size=(d2, d1)))
+            transform=rng.normal(size=(d2, d1)),
+        )
 
 
-def test_node_to_neurons(Simulator, nl_nodirect, plt, seed):
-    N = 30
-
-    m = nengo.Network(seed=seed)
-    with m:
-        m.config[nengo.Ensemble].neuron_type = nl_nodirect()
-        a = nengo.Ensemble(N, dimensions=1)
-        inn = nengo.Node(output=np.sin)
-        inh = nengo.Node(piecewise({0: 0, 0.5: 1}))
-        nengo.Connection(inn, a)
-        nengo.Connection(inh, a.neurons, transform=[[-2.5]] * N)
-
-        inn_p = nengo.Probe(inn, 'output')
-        a_p = nengo.Probe(a, 'decoded_output', synapse=0.1)
-        inh_p = nengo.Probe(inh, 'output')
-
-    with Simulator(m) as sim:
-        sim.run(1.0)
-    t = sim.trange()
-    ideal = np.sin(t)
-    ideal[t >= 0.5] = 0
-
-    plt.plot(t, sim.data[inn_p], label='Input')
-    plt.plot(t, sim.data[a_p], label='Neuron approx, synapse=0.1')
-    plt.plot(t, sim.data[inh_p], label='Inhib signal')
-    plt.plot(t, ideal, label='Ideal output')
-    plt.legend(loc='best', fontsize='small')
-
-    assert np.allclose(sim.data[a_p][-10:], 0, atol=.1, rtol=.01)
-
-
-def test_ensemble_to_neurons(Simulator, nl_nodirect, plt, seed):
-    N = 30
-
-    m = nengo.Network(seed=seed)
-    with m:
-        m.config[nengo.Ensemble].neuron_type = nl_nodirect()
-        a = nengo.Ensemble(N, dimensions=1)
-        b = nengo.Ensemble(N, dimensions=1)
-        inn = nengo.Node(output=np.sin)
-        inh = nengo.Node(piecewise({0: 0, 0.5: 1}))
-        nengo.Connection(inn, a)
-        nengo.Connection(inh, b)
-        nengo.Connection(b, a.neurons, transform=[[-2.5]] * N)
-
-        inn_p = nengo.Probe(inn, 'output')
-        a_p = nengo.Probe(a, 'decoded_output', synapse=0.1)
-        b_p = nengo.Probe(b, 'decoded_output', synapse=0.1)
-        inh_p = nengo.Probe(inh, 'output')
-
-    with Simulator(m) as sim:
-        sim.run(1.0)
-    t = sim.trange()
-    ideal = np.sin(t)
-    ideal[t >= 0.5] = 0
-
-    plt.plot(t, sim.data[inn_p], label='Input')
-    plt.plot(t, sim.data[a_p], label='Neuron approx, pstc=0.1')
-    plt.plot(t, sim.data[b_p], label='Neuron approx of inhib sig, pstc=0.1')
-    plt.plot(t, sim.data[inh_p], label='Inhib signal')
-    plt.plot(t, ideal, label='Ideal output')
-    plt.legend(loc=0, prop={'size': 10})
-
-    assert np.allclose(sim.data[a_p][-10:], 0, atol=.1, rtol=.01)
-    assert np.allclose(sim.data[b_p][-10:], 1, atol=.1, rtol=.01)
-
-
-def test_node_to_ensemble(Simulator, nl_nodirect, plt, seed):
+def test_node_to_neurons(Simulator, nl_nodirect, plt, seed, allclose):
     N = 50
 
     m = nengo.Network(seed=seed)
     with m:
         m.config[nengo.Ensemble].neuron_type = nl_nodirect()
-        input_node = nengo.Node(output=lambda t: [np.sin(t*3), np.cos(t*3)])
+        a = nengo.Ensemble(N, dimensions=1)
+        inn = nengo.Node(output=np.sin)
+        inh = nengo.Node(Piecewise({0: 0, 0.5: 1}))
+        nengo.Connection(inn, a)
+        nengo.Connection(inh, a.neurons, transform=[[-5]] * N)
+
+        inn_p = nengo.Probe(inn, "output")
+        a_p = nengo.Probe(a, "decoded_output", synapse=0.1)
+        inh_p = nengo.Probe(inh, "output")
+
+    with Simulator(m) as sim:
+        sim.run(1.0)
+    t = sim.trange()
+    ideal = np.sin(t)
+    ideal[t >= 0.5] = 0
+
+    plt.plot(t, sim.data[inn_p], label="Input")
+    plt.plot(t, sim.data[a_p], label="Neuron approx, synapse=0.1")
+    plt.plot(t, sim.data[inh_p], label="Inhib signal")
+    plt.plot(t, ideal, label="Ideal output")
+    plt.legend(loc="best", fontsize="small")
+
+    assert allclose(sim.data[a_p][-10:], 0, atol=0.1, rtol=0.01)
+
+
+def test_ensemble_to_neurons(Simulator, nl_nodirect, plt, seed, allclose):
+    with nengo.Network(seed=seed) as net:
+        net.config[nengo.Ensemble].neuron_type = nl_nodirect()
+        ens = nengo.Ensemble(40, dimensions=1)
+        inhibitor = nengo.Ensemble(40, dimensions=1)
+        stim = nengo.Node(output=np.sin)
+        inhibition = nengo.Node(Piecewise({0: 0, 0.5: 1}))
+        nengo.Connection(stim, ens)
+        nengo.Connection(inhibition, inhibitor)
+        nengo.Connection(
+            inhibitor, ens.neurons, transform=-10 * np.ones((ens.n_neurons, 1))
+        )
+
+        stim_p = nengo.Probe(stim, "output")
+        ens_p = nengo.Probe(ens, "decoded_output", synapse=0.05)
+        inhibitor_p = nengo.Probe(inhibitor, "decoded_output", synapse=0.05)
+        inhibition_p = nengo.Probe(inhibition, "output")
+
+    with Simulator(net) as sim:
+        sim.run(1.0)
+    t = sim.trange()
+    ideal = np.sin(t)
+    ideal[t >= 0.5] = 0
+
+    plt.plot(t, sim.data[stim_p], label="Input")
+    plt.plot(t, sim.data[ens_p], label="`ens` value, pstc=0.05")
+    plt.plot(t, sim.data[inhibitor_p], label="`inhibitor` value, pstc=0.05")
+    plt.plot(t, sim.data[inhibition_p], label="Inhibition signal")
+    plt.plot(t, ideal, label="Ideal output")
+    plt.legend(loc=0, prop={"size": 10})
+
+    assert allclose(sim.data[ens_p][-10:], 0, atol=0.1, rtol=0.01)
+    assert allclose(sim.data[inhibitor_p][-10:], 1, atol=0.1, rtol=0.01)
+
+
+def test_node_to_ensemble(Simulator, nl_nodirect, plt, seed, allclose):
+    N = 50
+
+    m = nengo.Network(seed=seed)
+    with m:
+        m.config[nengo.Ensemble].neuron_type = nl_nodirect()
+        input_node = nengo.Node(output=lambda t: [np.sin(t * 3), np.cos(t * 3)])
         a = nengo.Ensemble(N * 1, dimensions=1)
         b = nengo.Ensemble(N * 1, dimensions=1)
         c = nengo.Ensemble(N * 2, dimensions=2)
@@ -110,14 +112,15 @@ def test_node_to_ensemble(Simulator, nl_nodirect, plt, seed):
 
         nengo.Connection(input_node, a, function=lambda x: -x[0])
         nengo.Connection(input_node[:1], b, function=lambda x: -x)
-        nengo.Connection(input_node, c, function=lambda x: -(x**2))
-        nengo.Connection(input_node, d,
-                         function=lambda x: [-x[0], -(x[0]**2), -(x[1]**2)])
+        nengo.Connection(input_node, c, function=lambda x: -(x ** 2))
+        nengo.Connection(
+            input_node, d, function=lambda x: [-x[0], -(x[0] ** 2), -(x[1] ** 2)]
+        )
 
-        a_p = nengo.Probe(a, 'decoded_output', synapse=0.01)
-        b_p = nengo.Probe(b, 'decoded_output', synapse=0.01)
-        c_p = nengo.Probe(c, 'decoded_output', synapse=0.01)
-        d_p = nengo.Probe(d, 'decoded_output', synapse=0.01)
+        a_p = nengo.Probe(a, "decoded_output", synapse=0.01)
+        b_p = nengo.Probe(b, "decoded_output", synapse=0.01)
+        c_p = nengo.Probe(c, "decoded_output", synapse=0.01)
+        d_p = nengo.Probe(d, "decoded_output", synapse=0.01)
 
     with Simulator(m) as sim:
         sim.run(2.0)
@@ -127,15 +130,25 @@ def test_node_to_ensemble(Simulator, nl_nodirect, plt, seed):
     plt.plot(t, sim.data[b_p])
     plt.plot(t, sim.data[c_p])
     plt.plot(t, sim.data[d_p])
-    plt.legend(['-sin', '-sin', '-(sin ** 2)', '-(cos ** 2)', '-sin',
-                '-(sin ** 2)', '-(cos ** 2)'], loc='best', fontsize='small')
+    plt.legend(
+        [
+            "-sin",
+            "-sin",
+            "-(sin ** 2)",
+            "-(cos ** 2)",
+            "-sin",
+            "-(sin ** 2)",
+            "-(cos ** 2)",
+        ],
+        loc="best",
+        fontsize="small",
+    )
 
-    assert np.allclose(sim.data[a_p][-10:], sim.data[d_p][-10:][:, 0],
-                       atol=0.1, rtol=0.01)
-    assert np.allclose(sim.data[b_p][-10:], sim.data[d_p][-10:][:, 0],
-                       atol=0.1, rtol=0.01)
-    assert np.allclose(sim.data[c_p][-10:], sim.data[d_p][-10:][:, 1:3],
-                       atol=0.1, rtol=0.01)
+    assert allclose(sim.data[a_p][-10:], sim.data[d_p][-10:][:, 0], atol=0.1, rtol=0.01)
+    assert allclose(sim.data[b_p][-10:], sim.data[d_p][-10:][:, 0], atol=0.1, rtol=0.01)
+    assert allclose(
+        sim.data[c_p][-10:], sim.data[d_p][-10:][:, 1:3], atol=0.1, rtol=0.01
+    )
 
 
 def test_neurons_to_ensemble(Simulator, nl_nodirect, plt, seed):
@@ -146,27 +159,30 @@ def test_neurons_to_ensemble(Simulator, nl_nodirect, plt, seed):
         m.config[nengo.Ensemble].neuron_type = nl_nodirect()
         a = nengo.Ensemble(N * 2, dimensions=2)
         b = nengo.Ensemble(N, dimensions=1)
-        c = nengo.Ensemble(N, dimensions=N*2)
-        nengo.Connection(a.neurons, b, transform=-5 * np.ones((1, N*2)))
+        c = nengo.Ensemble(N, dimensions=N * 2)
+        nengo.Connection(a.neurons, b, transform=-5 * np.ones((1, N * 2)))
         nengo.Connection(a.neurons, c)
 
-        b_p = nengo.Probe(b, 'decoded_output', synapse=0.01)
-        c_p = nengo.Probe(c, 'decoded_output', synapse=0.01)
+        b_p = nengo.Probe(b, "decoded_output", synapse=0.01)
+        c_p = nengo.Probe(c, "decoded_output", synapse=0.01)
 
     with Simulator(m) as sim:
         sim.run(0.1)
     t = sim.trange()
 
-    plt.plot(t, sim.data[b_p], c='b')
-    plt.plot(t, sim.data[c_p], c='k')
-    plt.legend(['Negative weights', 'Neurons -> Ensemble dimensions'],
-               loc='best', fontsize="small")
+    plt.plot(t, sim.data[b_p], c="b")
+    plt.plot(t, sim.data[c_p], c="k")
+    plt.legend(
+        ["Negative weights", "Neurons -> Ensemble dimensions"],
+        loc="best",
+        fontsize="small",
+    )
     plt.xlim(right=t[-1])
 
     assert np.all(sim.data[b_p][-10:] < 0)
 
 
-def test_neurons_to_node(Simulator, nl_nodirect, plt, seed):
+def test_neurons_to_node(Simulator, nl_nodirect, plt, seed, allclose):
     N = 5
 
     m = nengo.Network(seed=seed)
@@ -194,11 +210,11 @@ def test_neurons_to_node(Simulator, nl_nodirect, plt, seed):
     plt.plot(t, sim.data[out_p])
     plt.xlim(right=t[-1])
 
-    assert np.allclose(sim.data[a_spikes], sim.data[out_p])
+    assert allclose(sim.data[a_spikes], sim.data[out_p])
 
 
-def test_neurons_to_neurons(Simulator, nl_nodirect, plt, seed):
-    N1, N2 = 30, 50
+def test_neurons_to_neurons(Simulator, nl_nodirect, plt, seed, allclose):
+    N1, N2 = 50, 80
 
     m = nengo.Network(seed=seed)
     with m:
@@ -207,29 +223,28 @@ def test_neurons_to_neurons(Simulator, nl_nodirect, plt, seed):
         b = nengo.Ensemble(N2, dimensions=1)
         inp = nengo.Node(output=1)
         nengo.Connection(inp, a)
-        nengo.Connection(
-            a.neurons, b.neurons, transform=-1 * np.ones((N2, N1)))
+        nengo.Connection(a.neurons, b.neurons, transform=-1 * np.ones((N2, N1)))
 
-        inp_p = nengo.Probe(inp, 'output')
-        a_p = nengo.Probe(a, 'decoded_output', synapse=0.1)
-        b_p = nengo.Probe(b, 'decoded_output', synapse=0.1)
+        inp_p = nengo.Probe(inp, "output")
+        a_p = nengo.Probe(a, "decoded_output", synapse=0.1)
+        b_p = nengo.Probe(b, "decoded_output", synapse=0.1)
 
     with Simulator(m) as sim:
         sim.run(0.6)
     t = sim.trange()
 
-    plt.plot(t, sim.data[inp_p], label='Input')
-    plt.plot(t, sim.data[a_p], label='A, represents input')
-    plt.plot(t, sim.data[b_p], label='B, should be 0')
+    plt.plot(t, sim.data[inp_p], label="Input")
+    plt.plot(t, sim.data[a_p], label="A, represents input")
+    plt.plot(t, sim.data[b_p], label="B, should be 0")
     plt.ylim(top=1.1)
     plt.xlim(right=t[-1])
-    plt.legend(loc='best')
+    plt.legend(loc="best")
 
-    assert np.allclose(sim.data[a_p][-10:], 1, atol=.1, rtol=.01)
-    assert np.allclose(sim.data[b_p][-10:], 0, atol=.1, rtol=.01)
+    assert allclose(sim.data[a_p][-10:], 1, atol=0.1, rtol=0.01)
+    assert allclose(sim.data[b_p][-10:], 0, atol=0.1, rtol=0.01)
 
 
-def test_function_and_transform(Simulator, plt, seed):
+def test_function_and_transform(Simulator, plt, seed, allclose):
     """Test using both a function and a transform"""
 
     model = nengo.Network(seed=seed)
@@ -244,30 +259,31 @@ def test_function_and_transform(Simulator, plt, seed):
 
     with Simulator(model) as sim:
         sim.run(0.8)
-    x0, x1 = np.dot(sim.data[ap]**2, [[1., -1]]).T
-    y0, y1 = sim.data[bp].T
+    x = np.dot(sim.data[ap] ** 2, [[1.0, -1]]).T
+    y = sim.data[bp].T
 
     t = sim.trange()
-    plt.plot(t, x0, 'b:', label='a**2')
-    plt.plot(t, x1, 'g:', label='-a**2')
-    plt.plot(t, y0, 'b', label='b[0]')
-    plt.plot(t, y1, 'g', label='b[1]')
-    plt.legend(loc=0, prop={'size': 10})
+    plt.plot(t, x[0], "b:", label="a**2")
+    plt.plot(t, x[1], "g:", label="-a**2")
+    plt.plot(t, y[0], "b", label="b[0]")
+    plt.plot(t, y[1], "g", label="b[1]")
+    plt.legend(loc=0, prop={"size": 10})
     plt.xlim(right=t[-1])
 
-    assert np.allclose(x0, y0, atol=.1, rtol=.01)
-    assert np.allclose(x1, y1, atol=.1, rtol=.01)
+    assert allclose(x[0], y[0], atol=0.1, rtol=0.01)
+    assert allclose(x[1], y[1], atol=0.1, rtol=0.01)
 
 
-def test_dist_transform(Simulator, seed):
+def test_dist_transform(Simulator, seed, allclose):
     """Using a distribution to initialize transform."""
 
     with nengo.Network(seed=seed) as net:
         net.config[nengo.Connection].transform = nengo.dists.Gaussian(0.5, 1)
-        a = nengo.Node(output=[0] * 100)
-        b = nengo.Node(size_in=101)
-        c = nengo.Ensemble(102, 10)
-        d = nengo.Ensemble(103, 11)
+        n = 300
+        a = nengo.Node(output=[0] * n)
+        b = nengo.Node(size_in=n + 1)
+        c = nengo.Ensemble(n + 2, 10)
+        d = nengo.Ensemble(n + 3, 11)
 
         # make a couple different types of connections to make sure that a
         # correctly sized transform is being generated
@@ -275,35 +291,36 @@ def test_dist_transform(Simulator, seed):
         conn2 = nengo.Connection(b, c)
         conn3 = nengo.Connection(b, c.neurons)
         conn4 = nengo.Connection(b[:2], c[2])
-        conn5 = nengo.Connection(
-            c, d, solver=nengo.solvers.LstsqL2(weights=True))
+        conn5 = nengo.Connection(c, d, solver=nengo.solvers.LstsqL2(weights=True))
 
-    assert isinstance(conn1.transform, nengo.dists.Gaussian)
+    assert isinstance(conn1.transform.init, nengo.dists.Gaussian)
 
-    sim = Simulator(net)
+    with Simulator(net) as sim:
+        pass
 
-    w = sim.model.params[conn1].weights
-    assert np.allclose(np.mean(w), 0.5, atol=0.01)
-    assert np.allclose(np.std(w), 1, atol=0.01)
-    assert w.shape == (101, 100)
+    w = sim.data[conn1].weights
+    assert allclose(np.mean(w), 0.5, atol=0.01)
+    assert allclose(np.std(w), 1, atol=0.01)
+    assert w.shape == (n + 1, n)
 
-    assert sim.model.params[conn2].weights.shape == (10, 101)
-    assert sim.model.params[conn3].weights.shape == (102, 101)
-    assert sim.model.params[conn4].weights.shape == (1, 2)
-    assert sim.model.params[conn5].weights.shape == (103, 102)
+    assert sim.data[conn2].weights.shape == (10, n + 1)
+    assert sim.data[conn3].weights.shape == (n + 2, n + 1)
+    assert sim.data[conn4].weights.shape == (1, 2)
+    assert sim.data[conn5].weights.shape == (n + 3, n + 2)
 
     # make sure the seed works (gives us the same transform)
     with nengo.Network(seed=seed) as net:
         net.config[nengo.Connection].transform = nengo.dists.Gaussian(0.5, 1)
-        a = nengo.Node(output=[0] * 100)
-        b = nengo.Node(size_in=101)
+        a = nengo.Node(output=[0] * n)
+        b = nengo.Node(size_in=n + 1)
         conn = nengo.Connection(a, b)
 
-    sim = Simulator(net)
-    assert np.allclose(w, sim.model.params[conn].weights)
+    with Simulator(net) as sim:
+        pass
+    assert allclose(w, sim.data[conn].weights)
 
 
-def test_weights(Simulator, nl, plt, seed):
+def test_weights(Simulator, nl, plt, seed, allclose):
     n1, n2 = 100, 50
 
     def func(t):
@@ -311,29 +328,32 @@ def test_weights(Simulator, nl, plt, seed):
 
     transform = np.array([[0.6, -0.4]])
 
-    m = nengo.Network(label='test_weights', seed=seed)
+    m = nengo.Network(label="test_weights", seed=seed)
     with m:
         m.config[nengo.Ensemble].neuron_type = nl()
         u = nengo.Node(output=func)
-        a = nengo.Ensemble(n1, dimensions=2, radius=1.5)
+        a = nengo.Ensemble(n1, dimensions=2, radius=1.4)
         b = nengo.Ensemble(n2, dimensions=1)
         bp = nengo.Probe(b)
 
         nengo.Connection(u, a)
-        nengo.Connection(a, b, transform=transform,
-                         solver=LstsqL2(weights=True))
+        nengo.Connection(
+            a, b, synapse=0.01, transform=transform, solver=LstsqL2(weights=True)
+        )
 
     with Simulator(m) as sim:
-        sim.run(1.)
+        sim.run(1.0)
 
     t = sim.trange()
     x = np.array(func(t)).T
     y = np.dot(x, transform.T)
-    z = nengo.Lowpass(0.005).filtfilt(sim.data[bp], dt=sim.dt)
-    assert allclose(t, y, z, atol=0.1, buf=0.1, delay=0.01, plt=plt)
+    z = nengo.Lowpass(0.01).filt(sim.data[bp], dt=sim.dt)
+    assert signals_allclose(
+        t, y, z, atol=0.15, buf=0.1, delay=0.025, plt=plt, allclose=allclose
+    )
 
 
-def test_vector(Simulator, nl, plt, seed):
+def test_vector(Simulator, nl, plt, seed, allclose):
     N1, N2 = 50, 50
     transform = [-1, 0.5]
 
@@ -346,7 +366,7 @@ def test_vector(Simulator, nl, plt, seed):
         nengo.Connection(u, a)
         nengo.Connection(a, b, transform=transform)
 
-        up = nengo.Probe(u, 'output')
+        up = nengo.Probe(u, "output")
         bp = nengo.Probe(b, synapse=0.03)
 
     with Simulator(m) as sim:
@@ -356,10 +376,10 @@ def test_vector(Simulator, nl, plt, seed):
     y = x * transform
     yhat = sim.data[bp]
 
-    plt.plot(t, y, '--')
+    plt.plot(t, y, "--")
     plt.plot(t, yhat)
 
-    assert np.allclose(y[-10:], yhat[-10:], atol=.1, rtol=.01)
+    assert allclose(y[-10:], yhat[-10:], atol=0.1, rtol=0.01)
 
 
 def test_dimensionality_errors(nl_nodirect, seed, rng):
@@ -382,39 +402,54 @@ def test_dimensionality_errors(nl_nodirect, seed, rng):
         nengo.Connection(e2, e2, transform=np.ones(2))
 
         # these should not work
-        with pytest.raises(ValidationError):
+        with pytest.raises(
+            ValidationError, match="not equal to connection output size"
+        ):
             nengo.Connection(n02, e1)
-        with pytest.raises(ValidationError):
+        with pytest.raises(
+            ValidationError, match="not equal to connection output size"
+        ):
             nengo.Connection(e1, e2)
-        with pytest.raises(ValidationError):
-            nengo.Connection(e2.neurons, e1, transform=rng.randn(1, N+1))
-        with pytest.raises(ValidationError):
-            nengo.Connection(e2.neurons, e1, transform=rng.randn(2, N))
-        with pytest.raises(ValidationError):
-            nengo.Connection(e2, e1, function=lambda x: x, transform=[[1]])
-        with pytest.raises(ValidationError):
-            nengo.Connection(e2, e1, function=lambda: 0, transform=[[1]])
-        with pytest.raises(ValidationError):
-            nengo.Connection(n21, e2, transform=np.ones((2, 2)))
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="Transform input size"):
+            nengo.Connection(
+                e2.neurons, e1, transform=Dense((1, N + 1), init=Choice([1.0]))
+            )
+        with pytest.raises(ValidationError, match="Transform output size"):
+            nengo.Connection(
+                e2.neurons, e1, transform=Dense((2, N), init=Choice([1.0]))
+            )
+        with pytest.raises(ValidationError, match="Function output size"):
+            nengo.Connection(e2, e1, function=lambda x: x, transform=Dense((1, 1)))
+        with pytest.raises(ValidationError, match="function.*must accept a single"):
+            nengo.Connection(e2, e1, function=lambda: 0, transform=Dense((1, 1)))
+        with pytest.raises(ValidationError, match="Function output size"):
+            nengo.Connection(n21, e2, transform=Dense((2, 2)))
+        with pytest.raises(ValidationError, match="Shape of initial value"):
             nengo.Connection(e2, e2, transform=np.ones((2, 2, 2)))
-        with pytest.raises(ValidationError):
-            nengo.Connection(e2, e2, transform=np.ones(3))
+        with pytest.raises(ValidationError, match="Function output size"):
+            nengo.Connection(e1, e2, transform=Dense((3, 3), init=np.ones(3)))
 
         # these should not work because of indexing mismatches
-        with pytest.raises(ValidationError):
-            nengo.Connection(n02[0], e2)
-        with pytest.raises(ValidationError):
-            nengo.Connection(n02, e2[0])
-        with pytest.raises(ValidationError):
-            nengo.Connection(n02[1], e2[0], transform=[[1, 2], [3, 4]])
-        with pytest.raises(ValidationError):
-            nengo.Connection(n02, e2[0], transform=[[1], [2]])
-        with pytest.raises(ValidationError):
-            nengo.Connection(e2[0], e2, transform=[[1, 2]])
+        with pytest.raises(ValidationError, match="Function output size"):
+            nengo.Connection(n02[0], e2, transform=Dense((2, 2)))
+        with pytest.raises(ValidationError, match="Transform output size"):
+            nengo.Connection(n02, e2[0], transform=Dense((2, 2)))
+        with pytest.raises(ValidationError, match="Function output size"):
+            nengo.Connection(n02[1], e2[0], transform=Dense((2, 2)))
+        with pytest.raises(ValidationError, match="Transform input size"):
+            nengo.Connection(n02, e2[0], transform=Dense((2, 1), init=Choice([1.0])))
+        with pytest.raises(ValidationError, match="Transform input size"):
+            nengo.Connection(e2[0], e2, transform=Dense((1, 2), init=Choice([1.0])))
+
+        # these should not work because of repeated indices
+        dense22 = Dense((2, 2), init=np.ones((2, 2)))
+        with pytest.raises(ValidationError, match="Input.*repeated indices"):
+            nengo.Connection(n02[[0, 0]], e2, transform=dense22)
+        with pytest.raises(ValidationError, match="Output.*repeated indices"):
+            nengo.Connection(e2, e2[[1, 1]], transform=dense22)
 
 
-def test_slicing(Simulator, nl, plt, seed):
+def test_slicing(Simulator, nl, plt, seed, allclose):
     N = 300
 
     x = np.array([-1, -0.25, 1])
@@ -464,21 +499,21 @@ def test_slicing(Simulator, nl, plt, seed):
             weight_probes.append(nengo.Probe(b, synapse=0.03))
 
     with Simulator(m) as sim:
-        sim.run(0.2)
+        sim.run(0.25)
     t = sim.trange()
 
     for i, [y, p] in enumerate(zip(ys, probes)):
         plt.subplot(len(ys), 1, i + 1)
-        plt.plot(t, np.tile(y, (len(t), 1)), '--')
+        plt.plot(t, np.tile(y, (len(t), 1)), "--")
         plt.plot(t, sim.data[p])
 
     atol = 0.01 if nl is nengo.Direct else 0.1
     for i, [y, p, wp] in enumerate(zip(ys, probes, weight_probes)):
-        assert np.allclose(y, sim.data[p][-20:], atol=atol), "Failed %d" % i
-        assert np.allclose(y, sim.data[wp][-20:], atol=atol), "Weights %d" % i
+        assert allclose(y, sim.data[p][-20:], atol=atol), "Failed %d" % i
+        assert allclose(y, sim.data[wp][-20:], atol=atol), "Weights %d" % i
 
 
-def test_neuron_slicing(Simulator, plt, seed, rng):
+def test_neuron_slicing(Simulator, plt, seed, rng, allclose):
     N = 6
     sa = slice(None, None, 2)
     sb = slice(None, None, -2)
@@ -504,12 +539,12 @@ def test_neuron_slicing(Simulator, plt, seed, rng):
 
     x = sim.data[ap]
     y = np.zeros((len(t), b.n_neurons))
-    y[:, sb] = np.dot(x[:, sa], c.transform.T)
+    y[:, sb] = np.dot(x[:, sa], c.transform.init.T)
     y = b.neuron_type.rates(y, sim.data[b].gain, sim.data[b].bias)
 
-    plt.plot(t, y, 'k--')
+    plt.plot(t, y, "k--")
     plt.plot(t, sim.data[bp])
-    assert np.allclose(y[-10:], sim.data[bp][-10:], atol=3.0, rtol=0.0)
+    assert allclose(y[-10:], sim.data[bp][-10:], atol=3.0, rtol=0.0)
 
 
 def test_shortfilter(Simulator, nl):
@@ -524,7 +559,7 @@ def test_shortfilter(Simulator, nl):
         nengo.Connection(a, b, synapse=0)
         nengo.Connection(b, a, synapse=0)
 
-    with Simulator(m, dt=.01):
+    with Simulator(m, dt=0.01):
         # This test passes if there are no cycles in the op graph
         pass
 
@@ -534,7 +569,7 @@ def test_shortfilter(Simulator, nl):
         d = nengo.Ensemble(1, dimensions=1, neuron_type=nengo.Direct())
         nengo.Connection(d, d, synapse=None)
     with pytest.raises(ValueError):
-        Simulator(m, dt=.01)
+        Simulator(m, dt=0.01)
 
 
 def test_zerofilter(Simulator, seed):
@@ -546,18 +581,20 @@ def test_zerofilter(Simulator, seed):
         nengo.Connection(a, a, synapse=0)
 
         # Ensure that spikes are not filtered
-        b = nengo.Ensemble(3, dimensions=1, intercepts=[-.9, -.8, -.7],
-                           neuron_type=nengo.LIF())
+        b = nengo.Ensemble(
+            3, dimensions=1, intercepts=[-0.9, -0.8, -0.7], neuron_type=nengo.LIF()
+        )
         bp = nengo.Probe(b.neurons)
 
     with Simulator(m) as sim:
-        sim.run(1.)
+        sim.run(1.0)
     # assert that we have spikes (binary)
     assert np.unique(sim.data[bp]).size == 2
 
 
-def test_function_output_size(Simulator, plt, seed):
+def test_function_output_size(Simulator, plt, seed, allclose):
     """Try a function that outputs both 0-d and 1-d arrays"""
+
     def bad_function(x):
         return x if x > 0 else 0
 
@@ -577,17 +614,17 @@ def test_function_output_size(Simulator, plt, seed):
     x = nengo.Lowpass(0.03).filt(sim.data[up].clip(0, np.inf), dt=sim.dt)
     y = sim.data[bp]
 
-    plt.plot(t, x, 'k')
+    plt.plot(t, x, "k")
     plt.plot(t, y)
 
-    assert np.allclose(x, y, atol=0.1)
+    assert allclose(x, y, atol=0.1)
 
 
-def test_slicing_function(Simulator, plt, seed):
+def test_slicing_function(Simulator, plt, seed, allclose):
     """Test using a pre-slice and a function"""
     N = 300
-    f_in = lambda t: [np.cos(3*t), np.sin(3*t)]
-    f_x = lambda x: [x, -x**2]
+    f_in = lambda t: [np.cos(3 * t), np.sin(3 * t)]
+    f_x = lambda x: [x, -(x ** 2)]
 
     with nengo.Network(seed=seed) as model:
         u = nengo.Node(output=f_in)
@@ -596,11 +633,11 @@ def test_slicing_function(Simulator, plt, seed):
         nengo.Connection(u, a)
         nengo.Connection(a[1], b, function=f_x)
 
-        up = nengo.Probe(u, synapse=0.03)
-        bp = nengo.Probe(b, synapse=0.03)
+        up = nengo.Probe(u, synapse=0.05)
+        bp = nengo.Probe(b, synapse=0.05)
 
     with Simulator(model) as sim:
-        sim.run(1.)
+        sim.run(1.0)
 
     t = sim.trange()
     v = sim.data[up]
@@ -608,9 +645,79 @@ def test_slicing_function(Simulator, plt, seed):
     y = sim.data[bp]
 
     plt.plot(t, y)
-    plt.plot(t, w, ':')
+    plt.plot(t, w, ":")
 
-    assert np.allclose(w, y, atol=0.1)
+    assert allclose(w, y, atol=0.1)
+
+
+@pytest.mark.parametrize("negative_indices", (True, False))
+def test_list_indexing(Simulator, plt, seed, negative_indices, allclose):
+    with nengo.Network(seed=seed) as model:
+        u = nengo.Node([-1, 1])
+        a = nengo.Ensemble(50, dimensions=1)
+        b = nengo.Ensemble(50, dimensions=1, radius=2.2)
+        c = nengo.Ensemble(100, dimensions=2, radius=1.3)
+        d = nengo.Ensemble(100, dimensions=2, radius=1.3)
+        if negative_indices:
+            nengo.Connection(u[[0, 1]], a[[0, -1]])
+            nengo.Connection(u[[1, -1]], b[[0, -1]])
+            nengo.Connection(u[[0, 1]], c[[0, 1]])
+            nengo.Connection(u[[1, -1]], d[[0, 1]])
+        else:
+            nengo.Connection(u[[0, 1]], a[[0, 0]])
+            nengo.Connection(u[[1, 1]], b[[0, 0]])
+            nengo.Connection(u[[0, 1]], c[[0, 1]])
+            nengo.Connection(u[[1, 1]], d[[0, 1]])
+
+        a_probe = nengo.Probe(a, synapse=0.03)
+        b_probe = nengo.Probe(b, synapse=0.03)
+        c_probe = nengo.Probe(c, synapse=0.03)
+        d_probe = nengo.Probe(d, synapse=0.03)
+
+    with Simulator(model) as sim:
+        sim.run(0.4)
+
+    t = sim.trange()
+    a_data = sim.data[a_probe]
+    b_data = sim.data[b_probe]
+    c_data = sim.data[c_probe]
+    d_data = sim.data[d_probe]
+
+    line = plt.plot(t, a_data)
+    plt.axhline(0, color=line[0].get_color())
+    line = plt.plot(t, b_data)
+    plt.axhline(2, color=line[0].get_color())
+    line = plt.plot(t, c_data)
+    plt.axhline(-1, color=line[0].get_color())
+    line = plt.plot(t, d_data)
+    plt.axhline(1, color=line[1].get_color())
+
+    assert allclose(a_data[t > 0.3], [0], atol=0.2)
+    assert allclose(b_data[t > 0.3], [2], atol=0.2)
+    assert allclose(c_data[t > 0.3], [-1, 1], atol=0.2)
+    assert allclose(d_data[t > 0.3], [1, 1], atol=0.2)
+
+
+@pytest.mark.filterwarnings("ignore:boolean index did not match")
+def test_boolean_indexing(Simulator, rng, plt, allclose):
+    D = 10
+    mu = np.arange(D) % 2 == 0
+    mv = np.arange(D) % 2 == 1
+    x = rng.uniform(-1, 1, size=D)
+    y = np.zeros(D)
+    y[mv] = x[mu]
+
+    with nengo.Network() as model:
+        u = nengo.Node(x)
+        v = nengo.Node(size_in=D)
+        nengo.Connection(u[mu], v[mv], synapse=None)
+        v_probe = nengo.Probe(v)
+
+    with Simulator(model) as sim:
+        sim.run(0.01)
+
+    plt.plot(sim.trange(), sim.data[v_probe])
+    assert allclose(sim.data[v_probe][1:], y, atol=1e-5, rtol=1e-3)
 
 
 def test_set_weight_solver():
@@ -623,8 +730,7 @@ def test_set_weight_solver():
         with pytest.raises(ValidationError):
             nengo.Connection(a, b.neurons, solver=LstsqL2(weights=True))
         with pytest.raises(ValidationError):
-            nengo.Connection(a.neurons, b.neurons,
-                             solver=LstsqL2(weights=True))
+            nengo.Connection(a.neurons, b.neurons, solver=LstsqL2(weights=True))
 
 
 def test_set_learning_rule():
@@ -632,11 +738,18 @@ def test_set_learning_rule():
         a = nengo.Ensemble(10, 2)
         b = nengo.Ensemble(10, 2)
         nengo.Connection(a, b, learning_rule_type=nengo.PES())
-        nengo.Connection(a, b, learning_rule_type=nengo.PES(),
-                         solver=LstsqL2(weights=True))
-        nengo.Connection(a.neurons, b.neurons, learning_rule_type=nengo.PES())
-        nengo.Connection(a.neurons, b.neurons, learning_rule_type=nengo.Oja(),
-                         transform=np.ones((10, 10)))
+        nengo.Connection(
+            a, b, learning_rule_type=nengo.PES(), solver=LstsqL2(weights=True)
+        )
+        nengo.Connection(
+            a.neurons, b.neurons, learning_rule_type=nengo.PES(), transform=1
+        )
+        nengo.Connection(
+            a.neurons,
+            b.neurons,
+            learning_rule_type=nengo.Oja(),
+            transform=np.ones((10, 10)),
+        )
 
         n = nengo.Node(output=lambda t, x: t * x, size_in=2)
         with pytest.raises(ValidationError):
@@ -656,8 +769,7 @@ def test_set_function(Simulator):
 
         # Function and transform must match up
         with pytest.raises(ValidationError):
-            nengo.Connection(a, b, function=lambda x: x[0] * x[1],
-                             transform=np.eye(2))
+            nengo.Connection(a, b, function=lambda x: x[0] * x[1], transform=np.eye(2))
 
         # No functions allowed on passthrough nodes
         with pytest.raises(ValidationError):
@@ -678,21 +790,15 @@ def test_set_function(Simulator):
     with Simulator(model):
         pass  # Builds fine
 
-    with model:
-        # Cannot change to a function with different dimensionality
-        # because that would require a change in transform
-        with pytest.raises(ValidationError):
-            conn_2d.function = lambda x: x[0] * x[1]
-        with pytest.raises(ValidationError):
-            conn_1d.function = None
-
-    with Simulator(model):
-        pass  # Builds fine
-
 
 def test_set_eval_points(Simulator):
     with nengo.Network() as model:
-        a = nengo.Ensemble(10, 2)
+        a = nengo.Ensemble(
+            10,
+            2,
+            encoders=nengo.dists.Choice([[1, 1]]),
+            intercepts=nengo.dists.Uniform(-1, -0.1),
+        )
         b = nengo.Ensemble(10, 2)
         # ConnEvalPoints parameter checks that pre is an ensemble
         nengo.Connection(a, b, eval_points=[[0, 0], [0.5, 1]])
@@ -704,9 +810,9 @@ def test_set_eval_points(Simulator):
         pass  # Builds fine
 
 
-@pytest.mark.parametrize('sample', [False, True])
-@pytest.mark.parametrize('radius', [0.5, 1., 1.5])
-@pytest.mark.parametrize('scale', [False, True])
+@pytest.mark.parametrize("sample", [False, True])
+@pytest.mark.parametrize("radius", [0.5, 1.0, 1.5])
+@pytest.mark.parametrize("scale", [False, True])
 def test_eval_points_scaling(Simulator, sample, radius, seed, rng, scale):
     eval_points = UniformHypersphere()
     if sample:
@@ -714,10 +820,15 @@ def test_eval_points_scaling(Simulator, sample, radius, seed, rng, scale):
 
     model = nengo.Network(seed=seed)
     with model:
-        a = nengo.Ensemble(1, 3, radius=radius)
+        a = nengo.Ensemble(
+            1,
+            3,
+            encoders=np.ones((1, 3)),
+            intercepts=nengo.dists.Choice([-1]),
+            radius=radius,
+        )
         b = nengo.Ensemble(1, 3)
-        con = nengo.Connection(a, b, eval_points=eval_points,
-                               scale_eval_points=scale)
+        con = nengo.Connection(a, b, eval_points=eval_points, scale_eval_points=scale)
 
     with Simulator(model) as sim:
         dists = npext.norm(sim.data[con].eval_points, axis=1)
@@ -728,8 +839,9 @@ def test_eval_points_scaling(Simulator, sample, radius, seed, rng, scale):
 
 def test_solverparam():
     """SolverParam must be a solver."""
-    class Test(object):
-        sp = ConnectionSolverParam('sp', default=None)
+
+    class Test:
+        sp = ConnectionSolverParam("sp", default=None)
 
     inst = Test()
     assert inst.sp is None
@@ -738,7 +850,7 @@ def test_solverparam():
     assert not inst.sp.weights
     # Non-solver not OK
     with pytest.raises(ValidationError):
-        inst.sp = 'a'
+        inst.sp = "a"
 
 
 def test_prepost_errors(Simulator):
@@ -799,39 +911,46 @@ def test_decoder_probe(Simulator):
         post = nengo.Ensemble(10, 10)
         c_ens = nengo.Connection(pre, post)
         c_ens_neurons = nengo.Connection(pre, post.neurons)
-        nengo.Probe(c_ens, 'weights')
-        nengo.Probe(c_ens_neurons, 'weights')
+        nengo.Probe(c_ens, "weights")
+        nengo.Probe(c_ens_neurons, "weights")
 
     with Simulator(net) as sim:
         assert sim
 
 
-def test_transform_probe(Simulator):
+def test_transform_probe(Simulator, allclose):
     """Ensures we can always probe transform in connections."""
     with nengo.Network() as net:
         pre = nengo.Ensemble(10, 10)
         post = nengo.Ensemble(10, 10)
 
-        c_ens = nengo.Connection(pre, post)
-        c_ens_neurons = nengo.Connection(pre, post.neurons)
-        c_neurons_ens = nengo.Connection(pre.neurons, post)
-        c_neurons = nengo.Connection(pre.neurons, post.neurons)
+        c_ens = nengo.Connection(
+            pre, post, solver=nengo.solvers.NoSolver(np.ones((10, 10)))
+        )
+        c_ens_neurons = nengo.Connection(
+            pre, post.neurons, solver=nengo.solvers.NoSolver(np.ones((10, 10)))
+        )
+        c_neurons_ens = nengo.Connection(pre.neurons, post, transform=1)
+        c_neurons = nengo.Connection(pre.neurons, post.neurons, transform=1)
 
-        nengo.Probe(c_neurons_ens, 'weights')
-        nengo.Probe(c_neurons, 'weights')
-        nengo.Probe(c_ens, 'weights')
-        nengo.Probe(c_ens_neurons, 'weights')
+        p_neurons_ens = nengo.Probe(c_neurons_ens, "weights")
+        p_neurons = nengo.Probe(c_neurons, "weights")
+        p_ens = nengo.Probe(c_ens, "weights")
+        p_ens_neurons = nengo.Probe(c_ens_neurons, "weights")
 
     with Simulator(net) as sim:
-        assert sim
+        sim.step()
+        assert allclose(sim.data[p_neurons_ens], 1)
+        assert allclose(sim.data[p_neurons], 1)
+        assert allclose(sim.data[p_ens], 1)
+        assert allclose(sim.data[p_ens_neurons], 1)
 
+    with net:
+        c_neurons_ens_none = nengo.Connection(pre.neurons, post, transform=None)
+        nengo.Probe(c_neurons_ens_none, "weights")
 
-def test_nomodulatory():
-    """Make sure you cannot set modulatory=True on connections."""
-    with nengo.Network():
-        a = nengo.Ensemble(10, 1)
-        with pytest.raises(ObsoleteError):
-            nengo.Connection(a, a, modulatory=True)
+    with pytest.raises(BuildError, match="cannot be probed"):
+        Simulator(net)
 
 
 def test_connectionlearningruletypeparam():
@@ -843,12 +962,12 @@ def test_connectionlearningruletypeparam():
             nengo.Connection(a, b, learning_rule_type=nengo.BCM())
 
         with pytest.raises(ValueError):  # transform must be correct shape
-            nengo.Connection(a, b, transform=np.ones((10, 11)),
-                             learning_rule_type=nengo.BCM())
+            nengo.Connection(
+                a, b, transform=np.ones((10, 11)), learning_rule_type=nengo.BCM()
+            )
 
 
 def test_function_with_no_name(Simulator):
-
     def add(x, val):
         return x + val
 
@@ -861,3 +980,159 @@ def test_function_with_no_name(Simulator):
 
     with Simulator(model) as sim:
         assert sim
+
+
+def test_function_points(Simulator, seed, rng, plt, allclose):
+    x = rng.uniform(-1, 1, size=(1000, 1))
+    y = -x
+
+    with nengo.Network(seed=seed) as model:
+        u = nengo.Node(nengo.processes.WhiteSignal(1.0, high=9, rms=0.3))
+        a = nengo.Ensemble(100, 1)
+        v = nengo.Node(size_in=1)
+        nengo.Connection(u, a, synapse=None)
+        nengo.Connection(a, v, eval_points=x, function=y)
+
+        up = nengo.Probe(u, synapse=nengo.Alpha(0.01))
+        vp = nengo.Probe(v, synapse=nengo.Alpha(0.01))
+
+    with Simulator(model, seed=seed) as sim:
+        sim.run(1.0)
+
+    assert signals_allclose(
+        sim.trange(),
+        -sim.data[up],
+        sim.data[vp],
+        buf=0.01,
+        delay=0.005,
+        atol=5e-2,
+        rtol=3e-2,
+        plt=plt,
+        allclose=allclose,
+    )
+
+
+def test_connectionfunctionparam_array(Simulator, seed):
+    points_1d = np.zeros((100, 1))
+    points_2d = np.zeros((100, 2))
+    points_v = np.zeros((100,))
+    points_50 = np.zeros((50, 1))
+
+    with nengo.Network(seed=seed) as model:
+        a = nengo.Ensemble(10, 1)
+        b = nengo.Ensemble(10, 1)
+
+        # eval points not set raises error
+        with pytest.raises(ValidationError):
+            nengo.Connection(a, b, function=points_1d)
+
+        # wrong ndims raises error
+        with pytest.raises(ValidationError):
+            nengo.Connection(a, b, eval_points=points_1d, function=points_v)
+
+        # wrong number of points raises error
+        with pytest.raises(ValidationError):
+            nengo.Connection(a, b, eval_points=points_50, function=points_1d)
+
+        # wrong output dims raises error
+        with pytest.raises(ValidationError):
+            nengo.Connection(a, b, eval_points=points_1d, function=points_2d)
+
+        nengo.Connection(a, b, eval_points=points_1d, function=points_1d)
+        nengo.Connection(
+            a, b, eval_points=points_1d, function=points_2d, transform=np.ones((1, 2))
+        )
+
+    with Simulator(model):
+        pass
+
+
+def test_function_names():
+    def my_func(x):
+        return x
+
+    class MyFunc:
+        def __call__(self, x):
+            return x
+
+    with nengo.Network():
+        a = nengo.Ensemble(10, 1)
+        b = nengo.Node(size_in=1)
+
+        func_conn = nengo.Connection(a, b, function=my_func)
+        assert str(func_conn).endswith("computing 'my_func'>")
+
+        class_conn = nengo.Connection(a, b, function=MyFunc())
+        assert str(class_conn).endswith("computing 'MyFunc'>")
+
+        array_conn = nengo.Connection(
+            a, b, eval_points=np.zeros((10, 1)), function=np.zeros((10, 1))
+        )
+        assert str(array_conn).endswith("computing 'ndarray'>")
+
+
+@pytest.mark.filterwarnings("ignore:divide by zero")
+@pytest.mark.filterwarnings("ignore:invalid value")
+@pytest.mark.filterwarnings("ignore:Non-finite values detected")
+def test_zero_activities_error(Simulator):
+    with nengo.Network() as model:
+        a = nengo.Ensemble(10, 1)
+        a.gain = np.zeros(10)
+        a.bias = np.zeros(10)
+        nengo.Connection(a, nengo.Node(size_in=1))
+
+    with pytest.raises(BuildError):
+        with Simulator(model):
+            pass
+
+
+def test_function_returns_none_error(Simulator):
+    with nengo.Network() as model:
+        a = nengo.Ensemble(10, 1)
+        nengo.Connection(
+            a,
+            nengo.Node(size_in=1),
+            eval_points=[[0], [1]],
+            function=lambda x: x if x < 0.5 else None,
+        )
+
+    with pytest.raises(BuildError):
+        with Simulator(model):
+            pass
+
+
+def test_transform_none():
+    with nengo.Network():
+        a = nengo.Node([0])
+        b = nengo.Node(size_in=1)
+        conn = nengo.Connection(a, b, transform=None)
+        assert isinstance(conn.transform, NoTransform)
+
+
+@pytest.mark.filterwarnings("ignore:divide by zero")
+def test_neuron_advanced_indexing(Simulator):
+    with nengo.Network() as net:
+        node = nengo.Node([1, 1, 1])
+        ens = nengo.Ensemble(
+            5, 1, bias=nengo.dists.Choice([0]), gain=nengo.dists.Choice([1])
+        )
+        nengo.Connection(node, ens.neurons[[0, 0, 2]], synapse=None)
+        p = nengo.Probe(ens.neurons, "input")
+
+    with Simulator(net) as sim:
+        sim.run(0.001)
+        assert np.allclose(sim.data[p], [2, 0, 1, 0, 0])
+
+
+def test_learning_rule_equality():
+    with nengo.Network():
+        ens = nengo.Ensemble(10, 1)
+        lr = nengo.PES()
+        conn0 = nengo.Connection(ens, ens, learning_rule_type=lr)
+        assert conn0.learning_rule == conn0.learning_rule
+        assert conn0.learning_rule != lr
+
+        conn1 = nengo.Connection(ens, ens, learning_rule_type=[lr, nengo.PES()])
+        assert conn0.learning_rule[0] != conn1.learning_rule
+        assert conn1.learning_rule_type[0] == conn0.learning_rule_type
+        assert conn1.learning_rule[0] == conn1.learning_rule[1]

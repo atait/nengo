@@ -1,15 +1,42 @@
-from __future__ import division
-
-import logging
+import warnings
 
 import numpy as np
 
 from nengo.exceptions import SimulationError, ValidationError
 from nengo.params import Parameter, NumberParam, FrozenObject
-from nengo.utils.compat import range
-from nengo.utils.neurons import settled_firingrate
 
-logger = logging.getLogger(__name__)
+
+def settled_firingrate(step_math, J, states, dt=0.001, settle_time=0.1, sim_time=1.0):
+    """Compute firing rates (in Hz) for given vector input, ``x``.
+
+    Unlike the default naive implementation, this approach takes into
+    account some characteristics of spiking neurons. We start
+    by simulating the neurons for a short amount of time, to let any
+    initial transients settle. Then, we run the neurons for a second
+    and find the average (which should approximate the firing rate).
+
+    Parameters
+    ----------
+    step_math : function
+        the step function of the neuron type
+    J : ndarray
+        a vector of currents to generate firing rates from
+    *states : list of ndarrays
+        additional state needed by the step function
+    """
+    out = np.zeros_like(J)
+    total = np.zeros_like(J)
+
+    # Simulate for the settle time
+    steps = int(settle_time / dt)
+    for _ in range(steps):
+        step_math(dt, J, out, *states)
+    # Simulate for sim time, and keep track
+    steps = int(sim_time / dt)
+    for _ in range(steps):
+        step_math(dt, J, out, *states)
+        total += out
+    return total / float(steps)
 
 
 class NeuronType(FrozenObject):
@@ -23,12 +50,42 @@ class NeuronType(FrozenObject):
 
     probeable = ()
 
-    def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__, ", ".join(self._argreprs))
+    def current(self, x, gain, bias):
+        """Compute current injected in each neuron given input, gain and bias.
 
-    @property
-    def _argreprs(self):
-        return []
+        Note that ``x`` is assumed to be already projected onto the encoders
+        associated with the neurons and normalized to radius 1, so the maximum
+        expected current for a neuron occurs when input for that neuron is 1.
+
+        Parameters
+        ----------
+        x : (n_samples,) or (n_samples, n_neurons) array_like
+            Scalar inputs for which to calculate current.
+        gain : (n_neurons,) array_like
+            Gains associated with each neuron.
+        bias : (n_neurons,) array_like
+            Bias current associated with each neuron.
+
+        Returns
+        -------
+        current : (n_samples, n_neurons)
+            Current to be injected in each neuron.
+        """
+        x = np.array(x, dtype=float, copy=False, ndmin=1)
+        gain = np.array(gain, dtype=float, copy=False, ndmin=1)
+        bias = np.array(bias, dtype=float, copy=False, ndmin=1)
+
+        if x.ndim == 1:
+            x = x[:, np.newaxis]
+        elif x.ndim >= 3 or x.shape[1] != gain.shape[0]:
+            raise ValidationError(
+                "Expected shape (%d, %d); got %s."
+                % (x.shape[0], gain.shape[0], x.shape),
+                attr="x",
+                obj=self,
+            )
+
+        return gain * x + bias
 
     def gain_bias(self, max_rates, intercepts):
         """Compute the gain and bias needed to satisfy max_rates, intercepts.
@@ -42,73 +99,120 @@ class NeuronType(FrozenObject):
 
         Parameters
         ----------
-        max_rates : ndarray(dtype=float64)
+        max_rates : (n_neurons,) array_like
             Maximum firing rates of neurons.
-        intercepts : ndarray(dtype=float64)
+        intercepts : (n_neurons,) array_like
             X-intercepts of neurons.
 
         Returns
         -------
-        gain : ndarray(dtype=float64)
+        gain : (n_neurons,) array_like
             Gain associated with each neuron. Sometimes denoted alpha.
-        bias : ndarray(dtype=float64)
+        bias : (n_neurons,) array_like
             Bias current associated with each neuron.
         """
-        J_max = 0
+        max_rates = np.array(max_rates, dtype=float, copy=False, ndmin=1)
+        intercepts = np.array(intercepts, dtype=float, copy=False, ndmin=1)
+
         J_steps = 101  # Odd number so that 0 is a sample
         max_rate = max_rates.max()
 
         # Start with dummy gain and bias so x == J in rate calculation
-        gain = np.ones(J_steps)
-        bias = np.zeros(J_steps)
-        rate = np.zeros(J_steps)
+        gain = np.ones(1)
+        bias = np.zeros(1)
 
-        # Find range of J that will achieve max rates
-        while rate[-1] < max_rate and J_max < 100:
-            J_max += 10
-            J = np.linspace(-J_max, J_max, J_steps)
+        # Find range of J that will achieve max rates (assume monotonic)
+        J_threshold = None
+        J_max = None
+        Jr = 10
+        for _ in range(10):
+            J = np.linspace(-Jr, Jr, J_steps)
             rate = self.rates(J, gain, bias)
-        J_threshold = J[np.where(rate <= 1e-16)[0][-1]]
+            if J_threshold is None and (rate <= 0).any():
+                J_threshold = J[np.where(rate <= 0)[0][-1]]
+            if J_max is None and (rate >= max_rate).any():
+                J_max = J[np.where(rate >= max_rate)[0][0]]
+
+            if J_threshold is not None and J_max is not None:
+                break
+
+            Jr *= 2
+        else:
+            if J_threshold is None:
+                raise RuntimeError("Could not find firing threshold")
+            if J_max is None:
+                raise RuntimeError("Could not find max current")
+
+        J = np.linspace(J_threshold, J_max, J_steps)
+        rate = self.rates(J, gain, bias).squeeze(axis=1)
 
         gain = np.zeros_like(max_rates)
         bias = np.zeros_like(max_rates)
-        for i in range(intercepts.size):
-            ix = np.where(rate > max_rates[i])[0]
-            if len(ix) == 0:
-                ix = -1
-            else:
-                ix = ix[0]
-            if rate[ix] == rate[ix - 1]:
-                p = 1
-            else:
-                p = (max_rates[i] - rate[ix - 1]) / (rate[ix] - rate[ix - 1])
-            J_top = p * J[ix] + (1 - p) * J[ix - 1]
+        J_tops = np.interp(max_rates, rate, J)
 
-            gain[i] = (J_threshold - J_top) / (intercepts[i] - 1)
-            bias[i] = J_top - gain[i]
-
+        gain[:] = (J_threshold - J_tops) / (intercepts - 1)
+        bias[:] = J_tops - gain
         return gain, bias
 
+    def max_rates_intercepts(self, gain, bias):
+        """Compute the max_rates and intercepts given gain and bias.
+
+        Note that this default implementation is very slow! Whenever possible,
+        subclasses should override this with a neuron-specific implementation.
+
+        Parameters
+        ----------
+        gain : (n_neurons,) array_like
+            Gain associated with each neuron. Sometimes denoted alpha.
+        bias : (n_neurons,) array_like
+            Bias current associated with each neuron.
+
+        Returns
+        -------
+        max_rates : (n_neurons,) array_like
+            Maximum firing rates of neurons.
+        intercepts : (n_neurons,) array_like
+            X-intercepts of neurons.
+        """
+
+        max_rates = self.rates(1, gain, bias).squeeze(axis=0)
+
+        x_range = np.linspace(-1, 1, 101)
+        rates = self.rates(x_range, gain, bias)
+        last_zeros = np.maximum(np.argmax(rates > 0, axis=0) - 1, 0)
+        intercepts = x_range[last_zeros]
+
+        return max_rates, intercepts
+
     def rates(self, x, gain, bias):
-        """Compute firing rates (in Hz) for given vector input, ``x``.
+        """Compute firing rates (in Hz) for given input ``x``.
 
         This default implementation takes the naive approach of running the
         step function for a second. This should suffice for most rate-based
         neuron types; for spiking neurons it will likely fail (those models
         should override this function).
 
+        Note that ``x`` is assumed to be already projected onto the encoders
+        associated with the neurons and normalized to radius 1, so the maximum
+        expected rate for a neuron occurs when input for that neuron is 1.
+
         Parameters
         ----------
-        x : ndarray(dtype=float64)
-            Vector-space input.
-        gain : ndarray(dtype=float64)
+        x : (n_samples,) or (n_samples, n_neurons) array_like
+            Scalar inputs for which to calculate rates.
+        gain : (n_neurons,) array_like
             Gains associated with each neuron.
-        bias : ndarray(dtype=float64)
+        bias : (n_neurons,) array_like
             Bias current associated with each neuron.
+
+        Returns
+        -------
+        rates : (n_samples, n_neurons) ndarray
+            The firing rates at each given value of ``x``.
         """
-        J = gain * x + bias
+        J = self.current(x, gain, bias)
         out = np.zeros_like(J)
-        self.step_math(dt=1., J=J, output=out)
+        self.step_math(dt=1.0, J=J, output=out)
         return out
 
     def step_math(self, dt, J, output):
@@ -122,9 +226,9 @@ class NeuronType(FrozenObject):
         ----------
         dt : float
             Simulation timestep.
-        J : ndarray(dtype=float64)
+        J : (n_neurons,) array_like
             Input currents associated with each neuron.
-        output : ndarray(dtype=float64)
+        output : (n_neurons,) array_like
             Output activities associated with each neuron.
         """
         raise NotImplementedError("Neurons must provide step_math")
@@ -143,9 +247,13 @@ class Direct(NeuronType):
         """Always returns ``None, None``."""
         return None, None
 
+    def max_rates_intercepts(self, gain, bias):
+        """Always returns ``None, None``."""
+        return None, None
+
     def rates(self, x, gain, bias):
         """Always returns ``x``."""
-        return x
+        return np.array(x, dtype=float, copy=False, ndmin=1)
 
     def step_math(self, dt, J, output):
         """Raises an error if called.
@@ -154,6 +262,7 @@ class Direct(NeuronType):
         the ensemble is in direct mode, and bypass the neural approximation.
         """
         raise SimulationError("Direct mode neurons shouldn't be simulated.")
+
 
 # TODO: class BasisFunctions or Population or Express;
 #       uses non-neural basis functions to emulate neuron saturation,
@@ -166,47 +275,113 @@ class RectifiedLinear(NeuronType):
     Each neuron is modeled as a rectified line. That is, the neuron's activity
     scales linearly with current, unless it passes below zero, at which point
     the neural activity will stay at zero.
+
+    Parameters
+    ----------
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output of the neuron.
     """
 
-    probeable = ('rates',)
+    probeable = ("rates",)
+
+    amplitude = NumberParam("amplitude", low=0, low_open=True)
+
+    def __init__(self, amplitude=1):
+        super().__init__()
+
+        self.amplitude = amplitude
 
     def gain_bias(self, max_rates, intercepts):
         """Determine gain and bias by shifting and scaling the lines."""
+        max_rates = np.array(max_rates, dtype=float, copy=False, ndmin=1)
+        intercepts = np.array(intercepts, dtype=float, copy=False, ndmin=1)
         gain = max_rates / (1 - intercepts)
         bias = -intercepts * gain
         return gain, bias
 
+    def max_rates_intercepts(self, gain, bias):
+        """Compute the inverse of gain_bias."""
+        intercepts = -bias / gain
+        max_rates = gain * (1 - intercepts)
+        return max_rates, intercepts
+
     def step_math(self, dt, J, output):
         """Implement the rectification nonlinearity."""
-        output[...] = np.maximum(0., J)
+        output[...] = self.amplitude * np.maximum(0.0, J)
+
+
+class SpikingRectifiedLinear(RectifiedLinear):
+    """A rectified integrate and fire neuron model.
+
+    Each neuron is modeled as a rectified line. That is, the neuron's activity
+    scales linearly with current, unless the current is less than zero, at
+    which point the neural activity will stay at zero. This is a spiking
+    version of the RectifiedLinear neuron model.
+
+    Parameters
+    ----------
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output spikes of the neuron.
+    """
+
+    probeable = ("spikes", "voltage")
+
+    def rates(self, x, gain, bias):
+        """Use RectifiedLinear to determine rates."""
+
+        J = self.current(x, gain, bias)
+        out = np.zeros_like(J)
+        RectifiedLinear.step_math(self, dt=1.0, J=J, output=out)
+        return out
+
+    def step_math(self, dt, J, spiked, voltage):
+        """Implement the integrate and fire nonlinearity."""
+
+        voltage += np.maximum(J, 0) * dt
+        n_spikes = np.floor(voltage)
+        spiked[:] = self.amplitude * n_spikes / dt
+        voltage -= n_spikes
 
 
 class Sigmoid(NeuronType):
-    """A neuron model whose response curve is a sigmoid."""
+    """A neuron model whose response curve is a sigmoid.
 
-    probeable = ('rates',)
+    Since the tuning curves are strictly positive, the ``intercepts``
+    correspond to the inflection point of each sigmoid. That is,
+    ``f(intercept) = 0.5`` where ``f`` is the pure sigmoid function.
+    """
 
-    tau_ref = NumberParam('tau_ref', low=0)
+    probeable = ("rates",)
 
-    def __init__(self, tau_ref=0.002):
-        super(Sigmoid, self).__init__()
+    tau_ref = NumberParam("tau_ref", low=0)
+
+    def __init__(self, tau_ref=0.0025):
+        super().__init__()
         self.tau_ref = tau_ref
-
-    @property
-    def _argreprs(self):
-        return [] if self.tau_ref == 0.002 else ["tau_ref=%s" % self.tau_ref]
 
     def gain_bias(self, max_rates, intercepts):
         """Analytically determine gain, bias."""
-        lim = 1. / self.tau_ref
-        gain = (-2. / (intercepts - 1.0)) * np.log(
-            (2.0 * lim - max_rates) / (lim - max_rates))
-        bias = -np.log(lim / max_rates - 1) - gain
+        max_rates = np.array(max_rates, dtype=float, copy=False, ndmin=1)
+        intercepts = np.array(intercepts, dtype=float, copy=False, ndmin=1)
+        lim = 1.0 / self.tau_ref
+        inverse = -np.log(lim / max_rates - 1.0)
+        gain = inverse / (1.0 - intercepts)
+        bias = inverse - gain
         return gain, bias
+
+    def max_rates_intercepts(self, gain, bias):
+        """Compute the inverse of gain_bias."""
+        inverse = gain + bias
+        intercepts = 1 - inverse / gain
+        lim = 1.0 / self.tau_ref
+        max_rates = lim / (1 + np.exp(-inverse))
+        return max_rates, intercepts
 
     def step_math(self, dt, J, output):
         """Implement the sigmoid nonlinearity."""
-        output[...] = (1. / self.tau_ref) / (1.0 + np.exp(-J))
+        output[...] = (1.0 / self.tau_ref) / (1.0 + np.exp(-J))
 
 
 class Sinusoid(NeuronType):
@@ -307,44 +482,58 @@ class LIFRate(NeuronType):
     tau_ref : float
         Absolute refractory period, in seconds. This is how long the
         membrane voltage is held at zero after a spike.
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output spikes of the neuron.
     """
 
-    probeable = ('rates',)
+    probeable = ("rates",)
 
-    tau_rc = NumberParam('tau_rc', low=0, low_open=True)
-    tau_ref = NumberParam('tau_ref', low=0)
+    tau_rc = NumberParam("tau_rc", low=0, low_open=True)
+    tau_ref = NumberParam("tau_ref", low=0)
+    amplitude = NumberParam("amplitude", low=0, low_open=True)
 
-    def __init__(self, tau_rc=0.02, tau_ref=0.002):
-        super(LIFRate, self).__init__()
+    def __init__(self, tau_rc=0.02, tau_ref=0.002, amplitude=1):
+        super().__init__()
         self.tau_rc = tau_rc
         self.tau_ref = tau_ref
-
-    @property
-    def _argreprs(self):
-        args = []
-        if self.tau_rc != 0.02:
-            args.append("tau_rc=%s" % self.tau_rc)
-        if self.tau_ref != 0.002:
-            args.append("tau_ref=%s" % self.tau_ref)
-        return args
+        self.amplitude = amplitude
 
     def gain_bias(self, max_rates, intercepts):
         """Analytically determine gain, bias."""
-        inv_tau_ref = 1. / self.tau_ref if self.tau_ref > 0 else np.inf
-        if np.any(max_rates > inv_tau_ref):
-            raise ValidationError("Max rates must be below the inverse "
-                                  "refractory period (%0.3f)" % inv_tau_ref,
-                                  attr='max_rates', obj=self)
+        max_rates = np.array(max_rates, dtype=float, copy=False, ndmin=1)
+        intercepts = np.array(intercepts, dtype=float, copy=False, ndmin=1)
 
-        x = 1.0 / (1 - np.exp(
-            (self.tau_ref - (1.0 / max_rates)) / self.tau_rc))
+        inv_tau_ref = 1.0 / self.tau_ref if self.tau_ref > 0 else np.inf
+        if np.any(max_rates > inv_tau_ref):
+            raise ValidationError(
+                "Max rates must be below the inverse "
+                "refractory period (%0.3f)" % inv_tau_ref,
+                attr="max_rates",
+                obj=self,
+            )
+
+        x = 1.0 / (1 - np.exp((self.tau_ref - (1.0 / max_rates)) / self.tau_rc))
         gain = (1 - x) / (intercepts - 1.0)
         bias = 1 - gain * intercepts
         return gain, bias
 
+    def max_rates_intercepts(self, gain, bias):
+        """Compute the inverse of gain_bias."""
+        intercepts = (1 - bias) / gain
+        max_rates = 1.0 / (
+            self.tau_ref - self.tau_rc * np.log1p(1.0 / (gain * (intercepts - 1) - 1))
+        )
+        if not np.all(np.isfinite(max_rates)):
+            warnings.warn(
+                "Non-finite values detected in `max_rates`; this "
+                "probably means that `gain` was too small."
+            )
+        return max_rates, intercepts
+
     def rates(self, x, gain, bias):
         """Always use LIFRate to determine rates."""
-        J = gain * x + bias
+        J = self.current(x, gain, bias)
         out = np.zeros_like(J)
         # Use LIFRate's step_math explicitly to ensure rate approximation
         LIFRate.step_math(self, dt=1, J=J, output=out)
@@ -354,8 +543,9 @@ class LIFRate(NeuronType):
         """Implement the LIFRate nonlinearity."""
         j = J - 1
         output[:] = 0  # faster than output[j <= 0] = 0
-        output[j > 0] = 1. / (
-            self.tau_ref + self.tau_rc * np.log1p(1. / j[j > 0]))
+        output[j > 0] = self.amplitude / (
+            self.tau_ref + self.tau_rc * np.log1p(1.0 / j[j > 0])
+        )
         # the above line is designed to throw an error if any j is nan
         # (nan > 0 -> error), and not pass x < -1 to log1p
 
@@ -374,14 +564,17 @@ class LIF(LIFRate):
     min_voltage : float
         Minimum value for the membrane voltage. If ``-np.inf``, the voltage
         is never clipped.
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output spikes of the neuron.
     """
 
-    probeable = ('spikes', 'voltage', 'refractory_time')
+    probeable = ("spikes", "voltage", "refractory_time")
 
-    min_voltage = NumberParam('min_voltage', high=0)
+    min_voltage = NumberParam("min_voltage", high=0)
 
-    def __init__(self, tau_rc=0.02, tau_ref=0.002, min_voltage=0):
-        super(LIF, self).__init__(tau_rc=tau_rc, tau_ref=tau_ref)
+    def __init__(self, tau_rc=0.02, tau_ref=0.002, min_voltage=0, amplitude=1):
+        super().__init__(tau_rc=tau_rc, tau_ref=tau_ref, amplitude=amplitude)
         self.min_voltage = min_voltage
 
     def step_math(self, dt, J, spiked, voltage, refractory_time):
@@ -401,11 +594,12 @@ class LIF(LIFRate):
 
         # determine which neurons spiked (set them to 1/dt, else 0)
         spiked_mask = voltage > 1
-        spiked[:] = spiked_mask / dt
+        spiked[:] = spiked_mask * (self.amplitude / dt)
 
         # set v(0) = 1 and solve for t to compute the spike time
         t_spike = dt + self.tau_rc * np.log1p(
-            -(voltage[spiked_mask] - 1) / (J[spiked_mask] - 1))
+            -(voltage[spiked_mask] - 1) / (J[spiked_mask] - 1)
+        )
 
         # set spiked voltages to zero, refractory times to tau_ref, and
         # rectify negative voltages to a floor of min_voltage
@@ -438,40 +632,35 @@ class AdaptiveLIFRate(LIFRate):
     tau_ref : float
         Absolute refractory period, in seconds. This is how long the
         membrane voltage is held at zero after a spike.
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output spikes of the neuron.
 
     References
     ----------
-    .. [1] Koch, Christof. Biophysics of Computation: Information Processing
-       in Single Neurons. Oxford University Press, 1999. p. 339
+    .. [1] Camera, Giancarlo La, et al. "Minimal models of adapted neuronal
+       response to in Vivo-Like input currents." Neural computation
+       16.10 (2004): 2101-2124.
     """
 
-    probeable = ('rates', 'adaptation')
+    probeable = ("rates", "adaptation")
 
-    tau_n = NumberParam('tau_n', low=0, low_open=True)
-    inc_n = NumberParam('inc_n', low=0)
+    tau_n = NumberParam("tau_n", low=0, low_open=True)
+    inc_n = NumberParam("inc_n", low=0)
 
-    def __init__(self, tau_n=1, inc_n=0.01, **lif_args):
-        super(AdaptiveLIFRate, self).__init__(**lif_args)
+    def __init__(self, tau_n=1, inc_n=0.01, tau_rc=0.02, tau_ref=0.002, amplitude=1):
+        super().__init__(tau_rc=tau_rc, tau_ref=tau_ref, amplitude=amplitude)
         self.tau_n = tau_n
         self.inc_n = inc_n
-
-    @property
-    def _argreprs(self):
-        args = super(AdaptiveLIFRate, self)._argreprs
-        if self.tau_n != 1:
-            args.append("tau_n=%s" % self.tau_n)
-        if self.inc_n != 0.01:
-            args.append("inc_n=%s" % self.inc_n)
-        return args
 
     def step_math(self, dt, J, output, adaptation):
         """Implement the AdaptiveLIFRate nonlinearity."""
         n = adaptation
-        LIFRate.step_math(self, dt, J - n, output)
+        super().step_math(dt, J - n, output)
         n += (dt / self.tau_n) * (self.inc_n * output - n)
 
 
-class AdaptiveLIF(AdaptiveLIFRate, LIF):
+class AdaptiveLIF(LIF):
     """Adaptive spiking version of the LIF neuron model.
 
     Works as the LIF model, except with adapation state ``n``, which is
@@ -495,19 +684,44 @@ class AdaptiveLIF(AdaptiveLIFRate, LIF):
     tau_ref : float
         Absolute refractory period, in seconds. This is how long the
         membrane voltage is held at zero after a spike.
+    min_voltage : float
+        Minimum value for the membrane voltage. If ``-np.inf``, the voltage
+        is never clipped.
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output spikes of the neuron.
 
     References
     ----------
-    .. [1] Koch, Christof. Biophysics of Computation: Information Processing
-       in Single Neurons. Oxford University Press, 1999. p. 339
+    .. [1] Camera, Giancarlo La, et al. "Minimal models of adapted neuronal
+       response to in Vivo-Like input currents." Neural computation
+       16.10 (2004): 2101-2124.
     """
 
-    probeable = ('spikes', 'adaptation', 'voltage', 'refractory_time')
+    probeable = ("spikes", "adaptation", "voltage", "refractory_time")
+
+    tau_n = NumberParam("tau_n", low=0, low_open=True)
+    inc_n = NumberParam("inc_n", low=0)
+
+    def __init__(
+        self,
+        tau_n=1,
+        inc_n=0.01,
+        tau_rc=0.02,
+        tau_ref=0.002,
+        min_voltage=0,
+        amplitude=1,
+    ):
+        super().__init__(
+            tau_rc=tau_rc, tau_ref=tau_ref, min_voltage=min_voltage, amplitude=amplitude
+        )
+        self.tau_n = tau_n
+        self.inc_n = inc_n
 
     def step_math(self, dt, J, output, voltage, ref, adaptation):
         """Implement the AdaptiveLIF nonlinearity."""
         n = adaptation
-        LIF.step_math(self, dt, J - n, output, voltage, ref)
+        super().step_math(dt, J - n, output, voltage, ref)
         n += (dt / self.tau_n) * (self.inc_n * output - n)
 
 
@@ -534,14 +748,14 @@ class Izhikevich(NeuronType):
 
     Parameters
     ----------
-    tau_recovery : float, optional (Default: 0.02)
-        (Originally 'a') Time scale of the recovery varaible.
-    coupling : float, optional (Default: 0.2)
+    tau_recovery : float, optional
+        (Originally 'a') Time scale of the recovery variable.
+    coupling : float, optional
         (Originally 'b') How sensitive recovery is to subthreshold
         fluctuations of voltage.
-    reset_voltage : float, optional (Default: -65.)
+    reset_voltage : float, optional
         (Originally 'c') The voltage to reset to after a spike, in millivolts.
-    reset_recovery : float, optional (Default: 8.)
+    reset_recovery : float, optional
         (Originally 'd') The recovery value to reset to after a spike.
 
     References
@@ -551,44 +765,30 @@ class Izhikevich(NeuronType):
        (http://www.izhikevich.org/publications/spikes.pdf)
     """
 
-    probeable = ('spikes', 'voltage', 'recovery')
+    probeable = ("spikes", "voltage", "recovery")
 
-    tau_recovery = NumberParam('tau_recovery', low=0, low_open=True)
-    coupling = NumberParam('coupling', low=0)
-    reset_voltage = NumberParam('reset_voltage')
-    reset_recovery = NumberParam('reset_recovery')
+    tau_recovery = NumberParam("tau_recovery", low=0, low_open=True)
+    coupling = NumberParam("coupling", low=0)
+    reset_voltage = NumberParam("reset_voltage")
+    reset_recovery = NumberParam("reset_recovery")
 
-    def __init__(self, tau_recovery=0.02, coupling=0.2,
-                 reset_voltage=-65., reset_recovery=8.):
-        super(Izhikevich, self).__init__()
+    def __init__(
+        self, tau_recovery=0.02, coupling=0.2, reset_voltage=-65.0, reset_recovery=8.0
+    ):
+        super().__init__()
         self.tau_recovery = tau_recovery
         self.coupling = coupling
         self.reset_voltage = reset_voltage
         self.reset_recovery = reset_recovery
 
-    @property
-    def _argreprs(self):
-        args = []
-
-        def add(attr, default):
-            if getattr(self, attr) != default:
-                args.append("%s=%s" % (attr, getattr(self, attr)))
-        add("tau_recovery", 0.02)
-        add("coupling", 0.2)
-        add("reset_voltage", -65.)
-        add("reset_recovery", 8.)
-        return args
-
     def rates(self, x, gain, bias):
-        """Estimates steady-state firing rate given gain and bias.
-
-        Uses the `nengo.utils.neurons.settled_firingrate` helper function.
-        """
-        J = gain * x + bias
+        """Estimates steady-state firing rate given gain and bias."""
+        J = self.current(x, gain, bias)
         voltage = np.zeros_like(J)
         recovery = np.zeros_like(J)
-        return settled_firingrate(self.step_math, J, [voltage, recovery],
-                                  settle_time=0.001, sim_time=1.0)
+        return settled_firingrate(
+            self.step_math, J, [voltage, recovery], settle_time=0.001, sim_time=1.0
+        )
 
     def step_math(self, dt, J, spiked, voltage, recovery):
         """Implement the Izhikevich nonlinearity."""
@@ -596,7 +796,7 @@ class Izhikevich(NeuronType):
         # We'll clip them be greater than some value that was chosen by
         # looking at the simulations for many parameter sets.
         # A more principled minimum value would be better.
-        J = np.maximum(-30., J)
+        J = np.maximum(-30.0, J)
 
         dV = (0.04 * voltage ** 2 + 5 * voltage + 140 - recovery + J) * 1000
         voltage[:] += dV * dt
@@ -615,8 +815,6 @@ class Izhikevich(NeuronType):
 
 
 class NeuronTypeParam(Parameter):
-    def validate(self, instance, neurons):
-        if neurons is not None and not isinstance(neurons, NeuronType):
-            raise ValidationError("'%s' is not a neuron type" % neurons,
-                                  attr=self.name, obj=instance)
-        super(NeuronTypeParam, self).validate(instance, neurons)
+    def coerce(self, instance, neurons):
+        self.check_type(instance, neurons, NeuronType)
+        return super().coerce(instance, neurons)

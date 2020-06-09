@@ -4,7 +4,6 @@ import nengo
 import nengo.spa.action_build
 from nengo.spa.action_objects import Symbol, Source, Convolution
 from nengo.spa.module import Module
-from nengo.utils.compat import iteritems
 
 
 class Cortical(Module):
@@ -14,25 +13,34 @@ class Cortical(Module):
     ----------
     actions : Actions
         The actions to implement.
-    synapse : float, optional (Default: 0.01)
+    synapse : float, optional
         The synaptic filter to use for the connections.
-    neurons_cconv : int, optional (Default: 200)
+    neurons_cconv : int, optional
         Number of neurons per circular convolution dimension.
 
-    label : str, optional (Default: None)
+    label : str, optional
         A name for the ensemble. Used for debugging and visualization.
-    seed : int, optional (Default: None)
+    seed : int, optional
         The seed used for random number generation.
-    add_to_container : bool, optional (Default: None)
+    add_to_container : bool, optional
         Determines if this Network will be added to the current container.
         If None, will be true if currently within a Network.
     """
-    def __init__(self, actions, synapse=0.01, neurons_cconv=200,
-                 label=None, seed=None, add_to_container=None):
-        super(Cortical, self).__init__(label, seed, add_to_container)
+
+    def __init__(
+        self,
+        actions,
+        synapse=0.01,
+        neurons_cconv=200,
+        label=None,
+        seed=None,
+        add_to_container=None,
+    ):
+        super().__init__(label, seed, add_to_container)
         self.actions = actions
         self.synapse = synapse
         self.neurons_cconv = neurons_cconv
+        self.spa = None
 
     def on_add(self, spa):
         Module.on_add(self, spa)
@@ -42,23 +50,25 @@ class Cortical(Module):
         self.actions.process(spa)
         for action in self.actions.actions:
             if action.condition is not None:
-                raise NotImplementedError("Cortical actions do not support "
-                                          "conditional expressions: %s." %
-                                          action.condition)
-            for name, effects in iteritems(action.effect.effect):
+                raise NotImplementedError(
+                    "Cortical actions do not support "
+                    "conditional expressions: %s." % action.condition
+                )
+            for name, effects in action.effect.effect.items():
                 for effect in effects.expression.items:
                     if isinstance(effect, Symbol):
                         self.add_direct_effect(name, effect.symbol)
                     elif isinstance(effect, Source):
-                        self.add_route_effect(name, effect.name,
-                                              effect.transform.symbol,
-                                              effect.inverted)
+                        self.add_route_effect(
+                            name, effect.name, effect.transform.symbol, effect.inverted
+                        )
                     elif isinstance(effect, Convolution):
                         self.add_conv_effect(name, effect)
                     else:
                         raise NotImplementedError(
                             "Subexpression '%s' from action '%s' is not "
-                            "supported by the cortex." % (effect, action))
+                            "supported by the cortex." % (effect, action)
+                        )
 
     def add_direct_effect(self, target_name, value):
         """Make a fixed constant input to a module.
@@ -75,11 +85,11 @@ class Cortical(Module):
         transform = np.array([vocab.parse(value).v]).T
 
         with target_module:
-            if not hasattr(target_module, 'bias'):
-                target_module.bias = nengo.Node([1],
-                                                label=target_name + " bias")
-            nengo.Connection(target_module.bias, sink, transform=transform,
-                             synapse=self.synapse)
+            if not hasattr(target_module, "bias"):
+                target_module.bias = nengo.Node([1], label=target_name + " bias")
+            nengo.Connection(
+                target_module.bias, sink, transform=transform, synapse=self.synapse
+            )
 
     def add_route_effect(self, target_name, source_name, transform, inverted):
         """Connect a module output to a module input.
@@ -123,5 +133,6 @@ class Cortical(Module):
         effect : Convolution
             The details of the convolution to implement.
         """
-        nengo.spa.action_build.convolution(self, target_name, effect,
-                                           self.neurons_cconv, self.synapse)
+        nengo.spa.action_build.convolution(
+            self, target_name, effect, self.neurons_cconv, self.synapse
+        )

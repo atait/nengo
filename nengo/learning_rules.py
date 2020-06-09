@@ -1,21 +1,36 @@
 import warnings
 
-from nengo.base import NengoObjectParam
+from nengo.config import SupportDefaultsMixin
 from nengo.exceptions import ValidationError
-from nengo.params import FrozenObject, NumberParam, Parameter
-from nengo.utils.compat import is_iterable, itervalues
+from nengo.params import (
+    Default,
+    IntParam,
+    FrozenObject,
+    NumberParam,
+    Parameter,
+)
+from nengo.synapses import Lowpass, SynapseParam
+from nengo.utils.numpy import is_iterable
 
 
-class ConnectionParam(NengoObjectParam):
-    def validate(self, instance, conn):
-        from nengo.connection import Connection
-        if not isinstance(conn, Connection):
-            raise ValidationError("'%s' is not a Connection" % conn,
-                                  attr=self.name, obj=instance)
-        super(ConnectionParam, self).validate(instance, conn)
+class LearningRuleTypeSizeInParam(IntParam):
+    valid_strings = ("pre", "post", "mid", "pre_state", "post_state")
+
+    def coerce(self, instance, size_in):
+        if isinstance(size_in, str):
+            if size_in not in self.valid_strings:
+                raise ValidationError(
+                    "%r is not a valid string value (must be one of %s)"
+                    % (size_in, self.strings),
+                    attr=self.name,
+                    obj=instance,
+                )
+            return size_in
+        else:
+            return super().coerce(instance, size_in)  # IntParam validation
 
 
-class LearningRuleType(FrozenObject):
+class LearningRuleType(FrozenObject, SupportDefaultsMixin):
     """Base class for all learning rule objects.
 
     To use a learning rule, pass it as a ``learning_rule_type`` keyword
@@ -24,12 +39,19 @@ class LearningRuleType(FrozenObject):
     Each learning rule exposes two important pieces of metadata that the
     builder uses to determine what information should be stored.
 
-    The ``error_type`` is the type of the incoming error signal. Options are:
+    The ``size_in`` is the dimensionality of the incoming error signal. It
+    can either take an integer or one of the following string values:
 
-    * ``'none'``: no error signal
-    * ``'scalar'``: scalar error signal
-    * ``'decoded'``: vector error signal in decoded space
-    * ``'neuron'``: vector error signal in neuron space
+    * ``'pre'``: vector error signal in pre-object space
+    * ``'post'``: vector error signal in post-object space
+    * ``'mid'``: vector error signal in the ``conn.size_mid`` space
+    * ``'pre_state'``: vector error signal in pre-synaptic ensemble space
+    * ``'post_state'``: vector error signal in pre-synaptic ensemble space
+
+    The difference between ``'post_state'`` and ``'post'`` is that with the
+    former, if a ``Neurons`` object is passed, it will use the dimensionality
+    of the corresponding ``Ensemble``, whereas the latter simply uses the
+    ``post`` object ``size_in``. Similarly with ``'pre_state'`` and ``'pre'``.
 
     The ``modifies`` attribute denotes the signal targeted by the rule.
     Options are:
@@ -40,37 +62,31 @@ class LearningRuleType(FrozenObject):
 
     Parameters
     ----------
-    learning_rate : float, optional (Default: 1e-6)
+    learning_rate : float, optional
         A scalar indicating the rate at which ``modifies`` will be adjusted.
+    size_in : int, str, optional
+        Dimensionality of the error signal (see above).
 
     Attributes
     ----------
-    error_type : str
-        The type of the incoming error signal. This also determines
-        the dimensionality of the error signal.
     learning_rate : float
         A scalar indicating the rate at which ``modifies`` will be adjusted.
+    size_in : int, str
+        Dimensionality of the error signal.
     modifies : str
         The signal targeted by the learning rule.
     """
 
-    error_type = 'none'
     modifies = None
     probeable = ()
 
-    learning_rate = NumberParam('learning_rate', low=0, low_open=True)
+    learning_rate = NumberParam("learning_rate", low=0, readonly=True, default=1e-6)
+    size_in = LearningRuleTypeSizeInParam("size_in", low=0)
 
-    def __init__(self, learning_rate=1e-6):
-        super(LearningRuleType, self).__init__()
+    def __init__(self, learning_rate=Default, size_in=0):
+        super().__init__()
         self.learning_rate = learning_rate
-
-    def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, ", ".join(self._argreprs))
-
-    @property
-    def _argreprs(self):
-        return (["learning_rate=%g" % self.learning_rate]
-                if self.learning_rate != 1e-6 else [])
+        self.size_in = size_in
 
 
 class PES(LearningRuleType):
@@ -81,40 +97,41 @@ class PES(LearningRuleType):
 
     Parameters
     ----------
-    learning_rate : float, optional (Default: 1e-4)
+    learning_rate : float, optional
         A scalar indicating the rate at which weights will be adjusted.
-    pre_tau : float, optional (Default: 0.005)
-        Filter constant on activities of neurons in pre population.
+    pre_synapse : `.Synapse`, optional
+        Synapse model used to filter the pre-synaptic activities.
 
     Attributes
     ----------
     learning_rate : float
         A scalar indicating the rate at which weights will be adjusted.
-    pre_tau : float
-        Filter constant on activities of neurons in pre population.
+    pre_synapse : `.Synapse`
+        Synapse model used to filter the pre-synaptic activities.
     """
 
-    error_type = 'decoded'
-    modifies = 'decoders'
-    probeable = ('error', 'correction', 'activities', 'delta')
+    modifies = "decoders"
+    probeable = ("error", "activities", "delta")
 
-    pre_tau = NumberParam('pre_tau', low=0, low_open=True)
+    learning_rate = NumberParam("learning_rate", low=0, readonly=True, default=1e-4)
+    pre_synapse = SynapseParam("pre_synapse", default=Lowpass(tau=0.005), readonly=True)
 
-    def __init__(self, learning_rate=1e-4, pre_tau=0.005):
-        if learning_rate >= 1.0:
-            warnings.warn("This learning rate is very high, and can result "
-                          "in floating point errors from too much current.")
-        self.pre_tau = pre_tau
-        super(PES, self).__init__(learning_rate)
+    def __init__(self, learning_rate=Default, pre_synapse=Default):
+        super().__init__(learning_rate, size_in="post_state")
+        if learning_rate is not Default and learning_rate >= 1.0:
+            warnings.warn(
+                "This learning rate is very high, and can result "
+                "in floating point errors from too much current."
+            )
 
-    @property
-    def _argreprs(self):
-        args = []
-        if self.learning_rate != 1e-4:
-            args.append("learning_rate=%g" % self.learning_rate)
-        if self.pre_tau != 0.005:
-            args.append("pre_tau=%f" % self.pre_tau)
-        return args
+        self.pre_synapse = pre_synapse
+
+
+def _remove_default_post_synapse(argreprs, default):
+    default_post_synapse = "post_synapse=%r" % (default,)
+    if default_post_synapse in argreprs:
+        argreprs.remove(default_post_synapse)
+    return argreprs
 
 
 class BCM(LearningRuleType):
@@ -124,78 +141,99 @@ class BCM(LearningRuleType):
     and the difference between the postsynaptic activity and the average
     postsynaptic activity.
 
+    Notes
+    -----
+    The BCM rule is dependent on pre and post neural activities,
+    not decoded values, and so is not affected by changes in the
+    size of pre and post ensembles. However, if you are decoding from
+    the post ensemble, the BCM rule will have an increased effect on
+    larger post ensembles because more connection weights are changing.
+    In these cases, it may be advantageous to scale the learning rate
+    on the BCM rule by ``1 / post.n_neurons``.
+
     Parameters
     ----------
-    theta_tau : float, optional (Default: 1.0)
-        A scalar indicating the time constant for theta integration.
-    pre_tau : float, optional (Default: 0.005)
-        Filter constant on activities of neurons in pre population.
-    post_tau : float, optional (Default: None)
-        Filter constant on activities of neurons in post population.
-        If None, post_tau will be the same as pre_tau.
-    learning_rate : float, optional (Default: 1e-9)
+    learning_rate : float, optional
         A scalar indicating the rate at which weights will be adjusted.
+    pre_synapse : `.Synapse`, optional
+        Synapse model used to filter the pre-synaptic activities.
+    post_synapse : `.Synapse`, optional
+        Synapse model used to filter the post-synaptic activities.
+        If None, ``post_synapse`` will be the same as ``pre_synapse``.
+    theta_synapse : `.Synapse`, optional
+        Synapse model used to filter the theta signal.
 
     Attributes
     ----------
     learning_rate : float
         A scalar indicating the rate at which weights will be adjusted.
-    post_tau : float
-        Filter constant on activities of neurons in post population.
-    pre_tau : float
-        Filter constant on activities of neurons in pre population.
-    theta_tau : float
-        A scalar indicating the time constant for theta integration.
+    post_synapse : `.Synapse`
+        Synapse model used to filter the post-synaptic activities.
+    pre_synapse : `.Synapse`
+        Synapse model used to filter the pre-synaptic activities.
+    theta_synapse : `.Synapse`
+        Synapse model used to filter the theta signal.
     """
 
-    error_type = 'none'
-    modifies = 'weights'
-    probeable = ('theta', 'pre_filtered', 'post_filtered', 'delta')
+    modifies = "weights"
+    probeable = ("theta", "pre_filtered", "post_filtered", "delta")
 
-    pre_tau = NumberParam('pre_tau', low=0, low_open=True)
-    post_tau = NumberParam('post_tau', low=0, low_open=True)
-    theta_tau = NumberParam('theta_tau', low=0, low_open=True)
+    learning_rate = NumberParam("learning_rate", low=0, readonly=True, default=1e-9)
+    pre_synapse = SynapseParam("pre_synapse", default=Lowpass(tau=0.005), readonly=True)
+    post_synapse = SynapseParam("post_synapse", default=None, readonly=True)
+    theta_synapse = SynapseParam(
+        "theta_synapse", default=Lowpass(tau=1.0), readonly=True
+    )
 
-    def __init__(self, pre_tau=0.005, post_tau=None, theta_tau=1.0,
-                 learning_rate=1e-9):
-        self.theta_tau = theta_tau
-        self.pre_tau = pre_tau
-        self.post_tau = post_tau if post_tau is not None else pre_tau
-        super(BCM, self).__init__(learning_rate)
+    def __init__(
+        self,
+        learning_rate=Default,
+        pre_synapse=Default,
+        post_synapse=Default,
+        theta_synapse=Default,
+    ):
+        super().__init__(learning_rate, size_in=0)
+
+        self.pre_synapse = pre_synapse
+        self.post_synapse = (
+            self.pre_synapse if post_synapse is Default else post_synapse
+        )
+        self.theta_synapse = theta_synapse
 
     @property
     def _argreprs(self):
-        args = []
-        if self.pre_tau != 0.005:
-            args.append("pre_tau=%f" % self.pre_tau)
-        if self.post_tau != self.pre_tau:
-            args.append("post_tau=%f" % self.post_tau)
-        if self.theta_tau != 1.0:
-            args.append("theta_tau=%f" % self.theta_tau)
-        if self.learning_rate != 1e-9:
-            args.append("learning_rate=%g" % self.learning_rate)
-        return args
+        return _remove_default_post_synapse(super()._argreprs, self.pre_synapse)
 
 
 class Oja(LearningRuleType):
     """Oja learning rule.
 
     Modifies connection weights according to the Hebbian Oja rule, which
-    augments typicaly Hebbian coactivity with a "forgetting" term that is
+    augments typically Hebbian coactivity with a "forgetting" term that is
     proportional to the weight of the connection and the square of the
     postsynaptic activity.
 
+    Notes
+    -----
+    The Oja rule is dependent on pre and post neural activities,
+    not decoded values, and so is not affected by changes in the
+    size of pre and post ensembles. However, if you are decoding from
+    the post ensemble, the Oja rule will have an increased effect on
+    larger post ensembles because more connection weights are changing.
+    In these cases, it may be advantageous to scale the learning rate
+    on the Oja rule by ``1 / post.n_neurons``.
+
     Parameters
     ----------
-    pre_tau : float, optional (Default: 0.005)
-        Filter constant on activities of neurons in pre population.
-    post_tau : float, optional (Default: None)
-        Filter constant on activities of neurons in post population.
-        If None, post_tau will be the same as pre_tau.
-    beta : float, optional (Default: 1.0)
-        A scalar weight on the forgetting term.
-    learning_rate : float, optional (Default: 1e-6)
+    learning_rate : float, optional
         A scalar indicating the rate at which weights will be adjusted.
+    pre_synapse : `.Synapse`, optional
+        Synapse model used to filter the pre-synaptic activities.
+    post_synapse : `.Synapse`, optional
+        Synapse model used to filter the post-synaptic activities.
+        If None, ``post_synapse`` will be the same as ``pre_synapse``.
+    beta : float, optional
+        A scalar weight on the forgetting term.
 
     Attributes
     ----------
@@ -203,39 +241,38 @@ class Oja(LearningRuleType):
         A scalar weight on the forgetting term.
     learning_rate : float
         A scalar indicating the rate at which weights will be adjusted.
-    post_tau : float
-        Filter constant on activities of neurons in post population.
-    pre_tau : float
-        Filter constant on activities of neurons in pre population.
+    post_synapse : `.Synapse`
+        Synapse model used to filter the post-synaptic activities.
+    pre_synapse : `.Synapse`
+        Synapse model used to filter the pre-synaptic activities.
     """
 
-    error_type = 'none'
-    modifies = 'weights'
-    probeable = ('pre_filtered', 'post_filtered', 'delta')
+    modifies = "weights"
+    probeable = ("pre_filtered", "post_filtered", "delta")
 
-    pre_tau = NumberParam('pre_tau', low=0, low_open=True)
-    post_tau = NumberParam('post_tau', low=0, low_open=True)
-    beta = NumberParam('beta', low=0)
+    learning_rate = NumberParam("learning_rate", low=0, readonly=True, default=1e-6)
+    pre_synapse = SynapseParam("pre_synapse", default=Lowpass(tau=0.005), readonly=True)
+    post_synapse = SynapseParam("post_synapse", default=None, readonly=True)
+    beta = NumberParam("beta", low=0, readonly=True, default=1.0)
 
-    def __init__(self, pre_tau=0.005, post_tau=None, beta=1.0,
-                 learning_rate=1e-6):
-        self.pre_tau = pre_tau
-        self.post_tau = post_tau if post_tau is not None else pre_tau
+    def __init__(
+        self,
+        learning_rate=Default,
+        pre_synapse=Default,
+        post_synapse=Default,
+        beta=Default,
+    ):
+        super().__init__(learning_rate, size_in=0)
+
         self.beta = beta
-        super(Oja, self).__init__(learning_rate)
+        self.pre_synapse = pre_synapse
+        self.post_synapse = (
+            self.pre_synapse if post_synapse is Default else post_synapse
+        )
 
     @property
     def _argreprs(self):
-        args = []
-        if self.pre_tau != 0.005:
-            args.append("pre_tau=%f" % self.pre_tau)
-        if self.post_tau != self.pre_tau:
-            args.append("post_tau=%f" % self.post_tau)
-        if self.beta != 1.0:
-            args.append("beta=%f" % self.beta)
-        if self.learning_rate != 1e-6:
-            args.append("learning_rate=%g" % self.learning_rate)
-        return args
+        return _remove_default_post_synapse(super()._argreprs, self.pre_synapse)
 
 
 class Voja(LearningRuleType):
@@ -249,48 +286,53 @@ class Voja(LearningRuleType):
 
     Parameters
     ----------
-    post_tau : float, optional (Default: 0.005)
+    post_tau : float, optional
         Filter constant on activities of neurons in post population.
-    learning_rate : float, optional (Default: 1e-2)
+    learning_rate : float, optional
         A scalar indicating the rate at which encoders will be adjusted.
+    post_synapse : `.Synapse`, optional
+        Synapse model used to filter the post-synaptic activities.
 
     Attributes
     ----------
     learning_rate : float
         A scalar indicating the rate at which encoders will be adjusted.
-    post_tau : float
-        Filter constant on activities of neurons in post population.
+    post_synapse : `.Synapse`
+        Synapse model used to filter the post-synaptic activities.
     """
 
-    error_type = 'scalar'
-    modifies = 'encoders'
-    probeable = ('post_filtered', 'scaled_encoders', 'delta')
+    modifies = "encoders"
+    probeable = ("post_filtered", "scaled_encoders", "delta")
 
-    post_tau = NumberParam('post_tau', low=0, low_open=True, optional=True)
+    learning_rate = NumberParam("learning_rate", low=0, readonly=True, default=1e-2)
+    post_synapse = SynapseParam(
+        "post_synapse", default=Lowpass(tau=0.005), readonly=True
+    )
 
-    def __init__(self, post_tau=0.005, learning_rate=1e-2):
-        self.post_tau = post_tau
-        super(Voja, self).__init__(learning_rate)
+    def __init__(self, learning_rate=Default, post_synapse=Default):
+        super().__init__(learning_rate, size_in=1)
+
+        self.post_synapse = post_synapse
 
 
 class LearningRuleTypeParam(Parameter):
-    def validate(self, instance, rule):
-        if is_iterable(rule):
-            for r in (itervalues(rule) if isinstance(rule, dict) else rule):
-                self.validate_rule(instance, r)
-        elif rule is not None:
-            self.validate_rule(instance, rule)
-        super(LearningRuleTypeParam, self).validate(instance, rule)
-
-    def validate_rule(self, instance, rule):
+    def check_rule(self, instance, rule):
         if not isinstance(rule, LearningRuleType):
             raise ValidationError(
                 "'%s' must be a learning rule type or a dict or "
-                "list of such types." % rule, attr=self.name, obj=instance)
-        if rule.error_type not in ('none', 'scalar', 'decoded', 'neuron'):
+                "list of such types." % rule,
+                attr=self.name,
+                obj=instance,
+            )
+        if rule.modifies not in ("encoders", "decoders", "weights"):
             raise ValidationError(
-                "Unrecognized error type %r" % rule.error_type,
-                attr=self.name, obj=instance)
-        if rule.modifies not in ('encoders', 'decoders', 'weights'):
-            raise ValidationError("Unrecognized target %r" % rule.modifies,
-                                  attr=self.name, obj=instance)
+                "Unrecognized target %r" % rule.modifies, attr=self.name, obj=instance
+            )
+
+    def coerce(self, instance, rule):
+        if is_iterable(rule):
+            for r in rule.values() if isinstance(rule, dict) else rule:
+                self.check_rule(instance, r)
+        elif rule is not None:
+            self.check_rule(instance, rule)
+        return super().coerce(instance, rule)

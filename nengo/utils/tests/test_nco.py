@@ -10,17 +10,17 @@ from nengo.utils.nco import Subfile
 
 @pytest.fixture
 def data():
-    return '0123456789\n123456789'
+    return "0123456789\n123456789"
 
 
 @pytest.fixture
 def testfile(data, tmpdir):
-    f = tmpdir.join('file.txt')
+    f = tmpdir.join("file.txt")
     f.write(data)
     return f
 
 
-class TestSubfile(object):
+class TestSubfile:
     def test_reads_only_from_start_to_end(self, data, testfile):
         with testfile.open() as f:
             assert Subfile(f, 2, 6).read() == data[2:6]
@@ -77,28 +77,28 @@ class TestSubfile(object):
         with testfile.open() as f:
             sf = Subfile(f, 2, 6)
             sf.seek(8)
-            assert sf.read() == ''
+            assert sf.read() == ""
         with testfile.open() as f:
             sf = Subfile(f, 2, 6)
             sf.read(1)
             sf.seek(8, os.SEEK_CUR)
-            assert sf.read() == ''
+            assert sf.read() == ""
         with testfile.open() as f:
             sf = Subfile(f, 2, 6)
             sf.seek(8, os.SEEK_END)
-            assert sf.read() == ''
+            assert sf.read() == ""
 
 
 def test_nco_roundtrip(tmpdir):
-    tmpfile = tmpdir.join('test.nco')
+    tmpfile = tmpdir.join("test.nco")
 
-    pickle_data = {'0': 237, 'str': 'foobar'}
+    pickle_data = {"0": 237, "str": "foobar"}
     array = np.array([[4, 3], [2, 1]])
 
-    with tmpfile.open('wb') as f:
+    with tmpfile.open("wb") as f:
         nco.write(f, pickle_data, array)
 
-    with tmpfile.open('rb') as f:
+    with tmpfile.open("rb") as f:
         pickle_data2, array2 = nco.read(f)
 
     assert pickle_data == pickle_data2

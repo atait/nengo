@@ -4,8 +4,8 @@ import numpy as np
 
 import nengo
 from nengo.exceptions import ValidationError
-from nengo.utils.compat import is_iterable, range
 from nengo.utils.network import with_self
+from nengo.utils.numpy import is_iterable
 
 
 class EnsembleArray(nengo.Network):
@@ -20,9 +20,11 @@ class EnsembleArray(nengo.Network):
 
     Note that in addition to the parameters below, parameters affecting
     all of the sub-ensembles can be passed to the ensemble array.
-    For example::
+    For example:
 
-        ea = nengo.networks.EnsembleArray(20, 2, radius=1.5)
+    .. testcode::
+
+       ea = nengo.networks.EnsembleArray(20, 2, radius=1.5)
 
     creates an ensemble array with 2 sub-ensembles, each with 20 neurons,
     and a radius of 1.5.
@@ -33,23 +35,14 @@ class EnsembleArray(nengo.Network):
         The number of neurons in each sub-ensemble.
     n_ensembles : int
         The number of sub-ensembles to create.
-
-    ens_dimensions : int, optional (Default: 1)
+    ens_dimensions : int, optional
         The dimensionality of each sub-ensemble.
-    neuron_nodes : bool, optional (Default: False)
-        Whether to create a node that provides access to each individual
-        neuron, typically for the purpose of inhibiting the entire
-        EnsembleArray.
-
-        .. note:: Deprecated in Nengo 2.1.0.
-                  Call `~.EnsembleArray.add_neuron_input` or
-                  `~.EnsembleArray.add_neuron_output` instead.
-    label : str, optional (Default: None)
+    label : str, optional
         A name to assign this EnsembleArray.
         Used for visualization and debugging.
-    seed : int, optional (Default: None)
+    seed : int, optional
         Random number seed that will be used in the build step.
-    add_to_container : bool, optional (Default: None)
+    add_to_container : bool, optional
         Determines if this network will be added to the current container.
         If None, this network will be added to the network at the top of the
         ``Network.context`` stack unless the stack is empty.
@@ -64,7 +57,7 @@ class EnsembleArray(nengo.Network):
         A node that provides input to all of the ensembles in the array.
     n_ensembles : int
         The number of sub-ensembles to create.
-    n_neurons : int
+    n_neurons_per_ensemble : int
         The number of neurons in each sub-ensemble.
     neuron_input : Node or None
         A node that provides input to all the neurons in the ensemble array.
@@ -77,23 +70,36 @@ class EnsembleArray(nengo.Network):
         in the array.
     """
 
-    def __init__(self, n_neurons, n_ensembles, ens_dimensions=1,
-                 neuron_nodes=False, label=None, seed=None,
-                 add_to_container=None, **ens_kwargs):
+    def __init__(
+        self,
+        n_neurons,
+        n_ensembles,
+        ens_dimensions=1,
+        label=None,
+        seed=None,
+        add_to_container=None,
+        **ens_kwargs
+    ):
         if "dimensions" in ens_kwargs:
             raise ValidationError(
                 "'dimensions' is not a valid argument to EnsembleArray. "
                 "To set the number of ensembles, use 'n_ensembles'. To set "
                 "the number of dimensions per ensemble, use 'ens_dimensions'.",
-                attr='dimensions', obj=self)
+                attr="dimensions",
+                obj=self,
+            )
 
-        super(EnsembleArray, self).__init__(label, seed, add_to_container)
+        super().__init__(label, seed, add_to_container)
+
+        for param in ens_kwargs:
+            if is_iterable(ens_kwargs[param]):
+                ens_kwargs[param] = nengo.dists.Samples(ens_kwargs[param])
 
         self.config[nengo.Ensemble].update(ens_kwargs)
 
         label_prefix = "" if label is None else label + "_"
 
-        self.n_neurons = n_neurons
+        self.n_neurons_per_ensemble = n_neurons
         self.n_ensembles = n_ensembles
         self.dimensions_per_ensemble = ens_dimensions
 
@@ -106,22 +112,19 @@ class EnsembleArray(nengo.Network):
             self.input = nengo.Node(size_in=self.dimensions, label="input")
 
             for i in range(n_ensembles):
-                e = nengo.Ensemble(n_neurons, self.dimensions_per_ensemble,
-                                   label="%s%d" % (label_prefix, i))
-                nengo.Connection(self.input[i * ens_dimensions:
-                                            (i + 1) * ens_dimensions],
-                                 e, synapse=None)
+                e = nengo.Ensemble(
+                    n_neurons,
+                    self.dimensions_per_ensemble,
+                    label="%s%d" % (label_prefix, i),
+                )
+                nengo.Connection(
+                    self.input[i * ens_dimensions : (i + 1) * ens_dimensions],
+                    e,
+                    synapse=None,
+                )
                 self.ea_ensembles.append(e)
 
-        if neuron_nodes:
-            self.add_neuron_input()
-            self.add_neuron_output()
-            warnings.warn(
-                "'neuron_nodes' argument will be removed in Nengo 2.2. Use "
-                "'add_neuron_input' and 'add_neuron_output' methods instead.",
-                DeprecationWarning)
-
-        self.add_output('output', function=None)
+        self.add_output("output", function=None)
 
     @property
     def dimensions(self):
@@ -146,15 +149,24 @@ class EnsembleArray(nengo.Network):
             raise ValidationError(
                 "Ensembles use Direct neuron type. "
                 "Cannot give neuron input to Direct neurons.",
-                attr='ea_ensembles[0].neuron_type', obj=self)
+                attr="ea_ensembles[0].neuron_type",
+                obj=self,
+            )
 
         self.neuron_input = nengo.Node(
-            size_in=self.n_neurons * self.n_ensembles, label="neuron_input")
+            size_in=self.n_neurons_per_ensemble * self.n_ensembles, label="neuron_input"
+        )
 
         for i, ens in enumerate(self.ea_ensembles):
-            nengo.Connection(self.neuron_input[i * self.n_neurons:
-                                               (i + 1) * self.n_neurons],
-                             ens.neurons, synapse=None)
+            nengo.Connection(
+                self.neuron_input[
+                    i
+                    * self.n_neurons_per_ensemble : (i + 1)
+                    * self.n_neurons_per_ensemble
+                ],
+                ens.neurons,
+                synapse=None,
+            )
         return self.neuron_input
 
     @with_self
@@ -175,16 +187,25 @@ class EnsembleArray(nengo.Network):
             raise ValidationError(
                 "Ensembles use Direct neuron type. "
                 "Cannot get neuron output from Direct neurons.",
-                attr='ea_ensembles[0].neuron_type', obj=self)
+                attr="ea_ensembles[0].neuron_type",
+                obj=self,
+            )
 
         self.neuron_output = nengo.Node(
-            size_in=self.n_neurons * self.n_ensembles, label="neuron_output")
+            size_in=self.n_neurons_per_ensemble * self.n_ensembles,
+            label="neuron_output",
+        )
 
         for i, ens in enumerate(self.ea_ensembles):
-            nengo.Connection(ens.neurons,
-                             self.neuron_output[i * self.n_neurons:
-                                                (i + 1) * self.n_neurons],
-                             synapse=None)
+            nengo.Connection(
+                ens.neurons,
+                self.neuron_output[
+                    i
+                    * self.n_neurons_per_ensemble : (i + 1)
+                    * self.n_neurons_per_ensemble
+                ],
+                synapse=None,
+            )
         return self.neuron_output
 
     @with_self
@@ -198,9 +219,11 @@ class EnsembleArray(nengo.Network):
 
         Note that in addition to the parameters below, parameters affecting
         all of the connections from the sub-ensembles to the new node
-        can be passed to this function. For example::
+        can be passed to this function. For example:
 
-            ea.add_output('output', None, solver=nengo.solers.Lstsq())
+        .. testcode::
+
+           ea.add_output('output', None, solver=nengo.solvers.Lstsq())
 
         creates a new output with the decoders of each connection solved for
         with the `.Lstsq` solver.
@@ -214,7 +237,7 @@ class EnsembleArray(nengo.Network):
             The function to compute across the connection from sub-ensembles
             to the new output node. If function is an iterable, it must be
             an iterable consisting of one function for each sub-ensemble.
-        synapse : Synapse, optional (Default: None)
+        synapse : Synapse, optional
             The synapse model with which to filter the connections from
             sub-ensembles to the new output node. This is kept separate from
             the other ``conn_kwargs`` because this defaults to None rather
@@ -230,7 +253,8 @@ class EnsembleArray(nengo.Network):
         if is_iterable(function) and all(callable(f) for f in function):
             if len(list(function)) != self.n_ensembles:
                 raise ValidationError(
-                    "Must have one function per ensemble", attr='function')
+                    "Must have one function per ensemble", attr="function"
+                )
 
             for i, func in enumerate(function):
                 sizes[i] = np.asarray(func(np.zeros(dims_per_ens))).size
@@ -241,8 +265,10 @@ class EnsembleArray(nengo.Network):
             sizes[:] = dims_per_ens
             function = [None] * self.n_ensembles
         else:
-            raise ValidationError("'function' must be a callable, list of "
-                                  "callables, or None", attr='function')
+            raise ValidationError(
+                "'function' must be a callable, list of callables, or None",
+                attr="function",
+            )
 
         output = nengo.Node(output=None, size_in=sizes.sum(), label=name)
         setattr(self, name, output)
@@ -251,7 +277,11 @@ class EnsembleArray(nengo.Network):
         indices[1:] = np.cumsum(sizes)
         for i, e in enumerate(self.ea_ensembles):
             nengo.Connection(
-                e, output[indices[i]:indices[i+1]], function=function[i],
-                synapse=synapse, **conn_kwargs)
+                e,
+                output[indices[i] : indices[i + 1]],
+                function=function[i],
+                synapse=synapse,
+                **conn_kwargs,
+            )
 
         return output

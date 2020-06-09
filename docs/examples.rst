@@ -2,125 +2,117 @@
 Examples
 ********
 
-Nengo creates these models using the principles of the
-`Neural Engineering Framework <http://compneuro.uwaterloo.ca/research/nef.html>`_.
-The first set of examples explains these three principles:
-*representation*, *transformation*, and *dynamics*.
+Introductory tutorials
+======================
 
-For a summary of these principles, see the following example:
+These are tutorial-style examples that focus on
+introducing the basic principles of Nengo.
 
-.. toctree::
-
-   examples/nef_summary
-
-The following examples give a more detailed presentation:
-
-Principle 1: Representation
-===========================
+Representing values
+-------------------
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/single_neuron
-   examples/two_neurons
-   examples/many_neurons
-   examples/2d_representation
-   examples/combining
-   examples/addition
+   examples/basic/single-neuron
+   examples/basic/two-neurons
+   examples/basic/many-neurons
+   examples/basic/2d-representation
+   examples/basic/combining
+   examples/basic/addition
 
-Principle 2: Transformation
-===========================
-
-.. toctree::
-
-   examples/communication_channel
-   examples/squaring
-   examples/multiplication
-
-Principle 3: Dynamics
-=====================
+Computing functions
+-------------------
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/integrator
-   examples/controlled_integrator
-   examples/controlled_integrator2
-   examples/oscillator
-   examples/controlled_oscillator
-   examples/lorenz_attractor
+   examples/basic/communication-channel
+   examples/basic/squaring
+   examples/basic/multiplication
 
-Putting these three principles together allows us to scale
-these examples up to larger networks that do more complex functions.
-Below are some of these complex functions,
-as well as other examples that we hope will be helpful
-as reference when building your own Nengo models.
+Building dynamical systems
+--------------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   examples/dynamics/integrator
+   examples/dynamics/controlled-integrator
+   examples/dynamics/controlled-integrator2
+   examples/dynamics/oscillator
+   examples/dynamics/controlled-oscillator
+   examples/dynamics/lorenz-attractor
+
+Advanced examples
+=================
+
+These examples illustrate some of the more advanced uses of Nengo.
 
 Nodes
-=====
+-----
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/delay_node
+   examples/usage/delay-node
 
 Processes
-=========
+---------
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/processes
+   examples/advanced/processes
 
 Ensembles
-=========
+---------
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/tuning_curves
-   examples/izhikevich
+   examples/usage/tuning-curves
+   examples/advanced/izhikevich
 
 Connections
-===========
+-----------
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/inhibitory_gating
+   examples/advanced/inhibitory-gating
+   examples/advanced/functions-and-tuning-curves
 
 Learning
-========
+--------
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/learn_communication_channel
-   examples/learn_square
-   examples/learn_product
-   examples/learn_unsupervised
-   examples/learn_associations
+   examples/learning/learn-communication-channel
+   examples/learning/learn-square
+   examples/learning/learn-product
+   examples/learning/learn-unsupervised
+   examples/learning/learn-associations
+   examples/learning/lmu
 
 Networks
-========
+--------
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/ensemble_array
-   examples/matrix_multiplication
-   examples/basal_ganglia
-   examples/integrator_network
+   examples/networks/ensemble-array
+   examples/advanced/matrix-multiplication
+   examples/networks/basal-ganglia
+   examples/networks/integrator-network
 
-Semantic Pointer Architecture
-=============================
-
-.. toctree::
-
-   examples/associative_memory
-   examples/convolution
-   examples/question
-   examples/question_control
-   examples/question_memory
-   examples/spa_parser
-   examples/spa_sequence
-   examples/spa_sequence_routed
-
-Extending Nengo
-===============
+Under the hood
+--------------
 
 .. toctree::
+   :maxdepth: 1
 
-   examples/rectified_linear
+   examples/usage/rectified-linear
+   examples/advanced/nef-summary
+   examples/advanced/nef-algorithm

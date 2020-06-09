@@ -1,6 +1,5 @@
 import nengo
 from nengo.spa.module import Module
-from nengo.utils.compat import iteritems
 
 
 def make_parse_func(func, vocab):
@@ -38,17 +37,17 @@ class Input(Module):
 
     Parameters
     ----------
-    label : str, optional (Default: None)
+    label : str, optional
         A name for the ensemble. Used for debugging and visualization.
-    seed : int, optional (Default: None)
+    seed : int, optional
         The seed used for random number generation.
-    add_to_container : bool, optional (Default: None)
+    add_to_container : bool, optional
         Determines if this Network will be added to the current container.
         If None, will be true if currently within a Network.
     """
 
     def __init__(self, label=None, seed=None, add_to_container=None, **kwargs):
-        super(Input, self).__init__(label, seed, add_to_container)
+        super().__init__(label, seed, add_to_container)
         self.kwargs = kwargs
         self.input_nodes = {}
 
@@ -56,7 +55,7 @@ class Input(Module):
         """Create the connections and nodes."""
         Module.on_add(self, spa)
 
-        for name, value in iteritems(self.kwargs):
+        for name, value in self.kwargs.items():
             target, vocab = spa.get_module_input(name)
             if callable(value):
                 val = make_parse_func(value, vocab)
@@ -64,7 +63,7 @@ class Input(Module):
                 val = vocab.parse(value).v
 
             with self:
-                node = nengo.Node(val, label='input_%s' % name)
+                node = nengo.Node(val, label="input_%s" % name)
             self.input_nodes[name] = node
 
             with spa:

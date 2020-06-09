@@ -35,16 +35,26 @@ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 THE POSSIBILITY OF SUCH DAMAGE.
 """
-from __future__ import absolute_import
 
 import warnings
 
 import numpy as np
-from numpy import (product, zeros, array, dot, r_, eye,
-                   atleast_1d, atleast_2d, poly, roots, asarray, allclose)
+from numpy import (
+    product,
+    zeros,
+    array,
+    dot,
+    r_,
+    eye,
+    atleast_1d,
+    atleast_2d,
+    poly,
+    roots,
+    asarray,
+    allclose,
+)
 
-from .compat import range
-from .numpy import expm
+from nengo._vendor.scipy import expm
 
 
 class BadCoefficients(UserWarning):
@@ -73,7 +83,7 @@ def tf2zpk(b, a):
 
     Notes
     -----
-    If some values of `b` are too close to 0, they are removed. In that case,
+    If some values of ``b`` are too close to 0, they are removed. In that case,
     a BadCoefficients warning is emitted.
 
     """
@@ -126,7 +136,7 @@ def zpk2tf(z, p, k):
 def normalize(b, a):
     """Normalize polynomial representation of a transfer function.
 
-    If values of `b` are too close to 0, they are removed. In that case, a
+    If values of ``b`` are too close to 0, they are removed. In that case, a
     BadCoefficients warning is emitted.
 
     """
@@ -134,8 +144,7 @@ def normalize(b, a):
     if len(a.shape) != 1:
         raise ValueError("Denominator polynomial must be rank-1 array.")
     if len(b.shape) > 2:
-        raise ValueError("Numerator polynomial must be rank-1 or"
-                         " rank-2 array.")
+        raise ValueError("Numerator polynomial must be rank-1 or rank-2 array.")
     if len(b.shape) == 1:
         b = asarray([b], b.dtype.char)
     while a[0] == 0.0 and len(a) > 1:
@@ -143,8 +152,11 @@ def normalize(b, a):
     outb = b * (1.0) / a[0]
     outa = a * (1.0) / a[0]
     if allclose(0, outb[:, 0], atol=1e-14):
-        warnings.warn("Badly conditioned filter coefficients (numerator): the "
-                      "results may be meaningless", BadCoefficients)
+        warnings.warn(
+            "Badly conditioned filter coefficients (numerator): the "
+            "results may be meaningless",
+            BadCoefficients,
+        )
         while allclose(0, outb[:, 0], atol=1e-14) and (outb.shape[-1] > 1):
             outb = outb[:, 1:]
     if outb.shape[0] == 1:
@@ -174,7 +186,7 @@ def tf2ss(num, den):
     #
     #   A, B, C, and D follow quite naturally.
     #
-    num, den = normalize(num, den)   # Strips zeros, checks arrays
+    num, den = normalize(num, den)  # Strips zeros, checks arrays
     nn = len(num.shape)
     if nn == 1:
         num = asarray([num], num.dtype)
@@ -184,11 +196,10 @@ def tf2ss(num, den):
         msg = "Improper transfer function. `num` is longer than `den`."
         raise ValueError(msg)
     if M == 0 or K == 0:  # Null system
-        return array([], float), array([], float), array([], float), \
-            array([], float)
+        return array([], float), array([], float), array([], float), array([], float)
 
     # pad numerator to have same number of columns has denominator
-    num = r_['-1', zeros((num.shape[0], K - M), num.dtype), num]
+    num = r_["-1", zeros((num.shape[0], K - M), num.dtype), num]
 
     if num.shape[-1] > 0:
         D = num[:, 0]
@@ -265,14 +276,14 @@ def abcd_normalize(A=None, B=None, C=None, D=None):
     """
     A, B, C, D = map(_atleast_2d_or_none, (A, B, C, D))
 
-    MA, NA = _shape_or_none(A)
-    MB, NB = _shape_or_none(B)
-    MC, NC = _shape_or_none(C)
-    MD, ND = _shape_or_none(D)
+    Am, _ = _shape_or_none(A)
+    Bm, Bn = _shape_or_none(B)
+    Cm, Cn = _shape_or_none(C)
+    Dm, Dn = _shape_or_none(D)
 
-    p = _choice_not_none(MA, MB, NC)
-    q = _choice_not_none(NB, ND)
-    r = _choice_not_none(MC, MD)
+    p = _choice_not_none(Am, Bm, Cn)
+    q = _choice_not_none(Bn, Dn)
+    r = _choice_not_none(Cm, Dm)
     if p is None or q is None or r is None:
         raise ValueError("Not enough information on the system.")
 
@@ -298,11 +309,11 @@ def ss2tf(A, B, C, D, input=0):
     Returns
     -------
     num : 2-D ndarray
-        Numerator(s) of the resulting transfer function(s).  `num` has one row
+        Numerator(s) of the resulting transfer function(s). ``num`` has one row
         for each of the system's outputs. Each row is a sequence representation
         of the numerator polynomial.
     den : 1-D ndarray
-        Denominator of the resulting transfer function(s).  `den` is a sequence
+        Denominator of the resulting transfer function(s). ``den`` is a sequence
         representation of the denominator polynomial.
 
     """
@@ -433,76 +444,79 @@ def cont2discrete(sys, dt, method="zoh", alpha=None):  # noqa: C901
 
     References
     ----------
-    .. [1] http://en.wikipedia.org/wiki/
-               Discretization#Discretization_of_linear_state_space_models
+    .. [1] https://en.wikipedia.org/wiki/Discretization
+           #Discretization_of_linear_state_space_models
 
-    .. [2] http://techteach.no/publications/
-               discretetime_signals_systems/discrete.pdf
+    .. [2] http://techteach.no/publications/discretetime_signals_systems/discrete.pdf
 
     .. [3] G. Zhang, X. Chen, and T. Chen, Digital redesign via the generalized
-        bilinear transformation, Int. J. Control, vol. 82, no. 4, pp. 741-754,
-        2009.
-        (http://www.ece.ualberta.ca/~gfzhang/research/ZCC07_preprint.pdf)
-
+           bilinear transformation, Int. J. Control, vol. 82, no. 4, pp. 741-754, 2009.
     """
     if len(sys) == 2:
-        sysd = cont2discrete(tf2ss(sys[0], sys[1]), dt, method=method,
-                             alpha=alpha)
+        sysd = cont2discrete(tf2ss(sys[0], sys[1]), dt, method=method, alpha=alpha)
         return ss2tf(sysd[0], sysd[1], sysd[2], sysd[3]) + (dt,)
     elif len(sys) == 3:
-        sysd = cont2discrete(zpk2ss(sys[0], sys[1], sys[2]), dt, method=method,
-                             alpha=alpha)
+        sysd = cont2discrete(
+            zpk2ss(sys[0], sys[1], sys[2]), dt, method=method, alpha=alpha
+        )
         return ss2zpk(sysd[0], sysd[1], sysd[2], sysd[3]) + (dt,)
     elif len(sys) == 4:
         a, b, c, d = sys
     else:
-        raise ValueError("First argument must either be a tuple of 2 (tf), "
-                         "3 (zpk), or 4 (ss) arrays.")
+        raise ValueError(
+            "First argument must either be a tuple of 2 (tf), "
+            "3 (zpk), or 4 (ss) arrays."
+        )
 
-    if method == 'gbt':
+    if method == "gbt":
         if alpha is None:
-            raise ValueError("Alpha parameter must be specified for the "
-                             "generalized bilinear transform (gbt) method")
+            raise ValueError(
+                "Alpha parameter must be specified for the "
+                "generalized bilinear transform (gbt) method"
+            )
         elif alpha < 0 or alpha > 1:
-            raise ValueError("Alpha parameter must be within the interval "
-                             "[0,1] for the gbt method")
+            raise ValueError(
+                "Alpha parameter must be within the interval "
+                "[0,1] for the gbt method"
+            )
 
-    if method == 'gbt':
+    if method == "gbt":
         # This parameter is used repeatedly - compute once here
-        ima = np.eye(a.shape[0]) - alpha*dt*a
-        ad = np.linalg.solve(ima, np.eye(a.shape[0]) + (1.0-alpha)*dt*a)
-        bd = np.linalg.solve(ima, dt*b)
+        ima = np.eye(a.shape[0]) - alpha * dt * a
+        ad = np.linalg.solve(ima, np.eye(a.shape[0]) + (1.0 - alpha) * dt * a)
+        bd = np.linalg.solve(ima, dt * b)
 
         # Similarly solve for the output equation matrices
         cd = np.linalg.solve(ima.transpose(), c.transpose())
         cd = cd.transpose()
-        dd = d + alpha*np.dot(c, bd)
+        dd = d + alpha * np.dot(c, bd)
 
-    elif method == 'bilinear' or method == 'tustin':
+    elif method == "bilinear" or method == "tustin":
         return cont2discrete(sys, dt, method="gbt", alpha=0.5)
 
-    elif method == 'euler' or method == 'forward_diff':
+    elif method == "euler" or method == "forward_diff":
         return cont2discrete(sys, dt, method="gbt", alpha=0.0)
 
-    elif method == 'backward_diff':
+    elif method == "backward_diff":
         return cont2discrete(sys, dt, method="gbt", alpha=1.0)
 
-    elif method == 'zoh':
+    elif method == "zoh":
         # Build an exponential matrix
         em_upper = np.hstack((a, b))
 
         # Need to stack zeros under the a and b matrices
-        em_lower = np.hstack((np.zeros((b.shape[1], a.shape[0])),
-                              np.zeros((b.shape[1], b.shape[1]))))
+        em_lower = np.hstack(
+            (np.zeros((b.shape[1], a.shape[0])), np.zeros((b.shape[1], b.shape[1])))
+        )
 
         em = np.vstack((em_upper, em_lower))
         ms = expm(dt * em)
 
         # Dispose of the lower rows
-        ms = ms[:a.shape[0], :]
+        ms = ms[: a.shape[0], :]
 
-        ad = ms[:, 0:a.shape[1]]
-        bd = ms[:, a.shape[1]:]
+        ad = ms[:, 0 : a.shape[1]]
+        bd = ms[:, a.shape[1] :]
 
         cd = c
         dd = d

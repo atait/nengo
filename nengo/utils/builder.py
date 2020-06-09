@@ -1,18 +1,16 @@
-"""These are helper functions that various backends may find useful for
-generating their own Builder system.
-"""
+"""Helper functions for backends generating their own Builder system."""
 
-from __future__ import absolute_import
 import collections
 
 import numpy as np
 
-import nengo
-from nengo.exceptions import Unconvertible, ValidationError
+from nengo.exceptions import MovedError, Unconvertible, ValidationError
 
 
-def full_transform(conn, slice_pre=True, slice_post=True, allow_scalars=True):
-    """Compute the full transform for a connection.
+def full_transform(  # noqa: C901
+    conn, slice_pre=True, slice_post=True, allow_scalars=True
+):
+    """Compute the full transform matrix for a Dense connection transform.
 
     Parameters
     ----------
@@ -27,9 +25,23 @@ def full_transform(conn, slice_pre=True, slice_post=True, allow_scalars=True):
         not using slicing, since these work fine in the reference builder.
         If false, these scalars will be turned into scaled identity matrices.
     """
-    transform = conn.transform
-    pre_slice = (conn.pre_slice if slice_pre and conn.function is None else
-                 slice(None))
+    # imported here to avoid circular imports
+    # pylint: disable=import-outside-toplevel
+    from nengo import Dense
+    from nengo.transforms import NoTransform
+
+    if isinstance(conn.transform, NoTransform):
+        transform = np.array(1.0)
+    elif not isinstance(conn.transform, Dense):
+        raise ValidationError(
+            "full_transform can only be applied to Dense transforms",
+            attr="transform",
+            obj=conn,
+        )
+    else:
+        transform = conn.transform.init
+
+    pre_slice = conn.pre_slice if slice_pre and conn.function is None else slice(None)
     post_slice = conn.post_slice if slice_post else slice(None)
 
     eq_none_slice = lambda s: isinstance(s, slice) and s == slice(None)
@@ -45,24 +57,27 @@ def full_transform(conn, slice_pre=True, slice_post=True, allow_scalars=True):
 
     # Create the new transform matching the pre/post dimensions
     func_size = conn.function_info.size
-    size_in = (conn.pre_obj.size_out if func_size is None
-               else func_size) if slice_pre else conn.size_mid
+    size_in = (
+        (conn.pre_obj.size_out if func_size is None else func_size)
+        if slice_pre
+        else conn.size_mid
+    )
     size_out = conn.post_obj.size_in if slice_post else conn.size_out
     new_transform = np.zeros((size_out, size_in))
 
     if transform.ndim < 2:
-        new_transform[np.arange(size_out)[post_slice],
-                      np.arange(size_in)[pre_slice]] = transform
+        new_transform[
+            np.arange(size_out)[post_slice], np.arange(size_in)[pre_slice]
+        ] = transform
         return new_transform
     elif transform.ndim == 2:
         repeated_inds = lambda x: (
-            not isinstance(x, slice) and np.unique(x).size != len(x))
+            not isinstance(x, slice) and np.unique(x).size != len(x)
+        )
         if repeated_inds(pre_slice):
-            raise NotImplementedError(
-                "Input object selection has repeated indices")
+            raise NotImplementedError("Input object selection has repeated indices")
         if repeated_inds(post_slice):
-            raise NotImplementedError(
-                "Output object selection has repeated indices")
+            raise NotImplementedError("Output object selection has repeated indices")
 
         rows_transform = np.array(new_transform[post_slice])
         rows_transform[:, pre_slice] = transform
@@ -72,8 +87,9 @@ def full_transform(conn, slice_pre=True, slice_post=True, allow_scalars=True):
         #  just individual items
         return new_transform
     else:
-        raise ValidationError("Transforms with > 2 dims not supported",
-                              attr='transform', obj=conn)
+        raise ValidationError(
+            "Transforms with > 2 dims not supported", attr="transform", obj=conn
+        )
 
 
 def default_n_eval_points(n_neurons, dimensions):
@@ -87,62 +103,30 @@ def default_n_eval_points(n_neurons, dimensions):
     n_neurons : int
         The number of neurons in the ensemble that will be sampled.
         For a connection, this would be the number of neurons in the
-        `pre` ensemble.
+        ``pre`` ensemble.
     dimensions : int
         The number of dimensions in the ensemble that will be sampled.
         For a connection, this would be the number of dimensions in the
-        `pre` ensemble.
+        ``pre`` ensemble.
     """
     return max(np.clip(500 * dimensions, 750, 2500), 2 * n_neurons)
 
 
 def objs_and_connections(network):
     """Given a Network, returns all (ensembles + nodes, connections)."""
-    objs = list(network.ensembles + network.nodes)
-    connections = list(network.connections)
-    for subnetwork in network.networks:
-        subobjs, subconnections = objs_and_connections(subnetwork)
-        objs.extend(subobjs)
-        connections.extend(subconnections)
-    return objs, connections
+    return network.all_ensembles + network.all_nodes, network.all_connections
 
 
-def generate_graphviz(objs, connections):
-    """Create a .gv file with this set of objects and connections
-
-    Parameters
-    ----------
-    objs : list of Nodes and Ensembles
-        All the objects in the model
-    connections : list of Connections
-        All the Connections in the model
-
-    Returns the text contents of the desired .dot file
-
-    This can be useful for debugging and testing Builders that manipulate
-    the model graph before construction.
-    """
-    text = []
-    text.append('digraph G {')
-    for obj in objs:
-        text.append('  "%d" [label="%s"];' % (id(obj), obj.label))
-
-    def label(transform):
-        # determine the label for a connection based on its transform
-        transform = np.asarray(transform)
-        if len(transform.shape) == 0:
-            return ''
-        return '%dx%d' % transform.shape
-
-    for c in connections:
-        text.append('  "%d" -> "%d" [label="%s"];' % (
-            id(c.pre_obj), id(c.post_obj), label(c.transform)))
-    text.append('}')
-    return '\n'.join(text)
+def generate_graphviz(*args, **kwargs):
+    """Moved to nengo_extras.graphviz."""
+    raise MovedError(location="nengo_extras.graphviz")
 
 
 def _create_replacement_connection(c_in, c_out):
-    """Generate a new Connection to replace two through a passthrough Node"""
+    """Generate a new Connection to replace two through a passthrough Node."""
+    # imported here to avoid circular imports
+    from nengo import Connection  # pylint: disable=import-outside-toplevel
+
     assert c_in.post_obj is c_out.pre_obj
     assert c_in.post_obj.output is None
 
@@ -169,17 +153,21 @@ def _create_replacement_connection(c_in, c_out):
     if np.all(transform == 0):
         return None
 
-    c = nengo.Connection(c_in.pre_obj, c_out.post_obj,
-                         synapse=synapse,
-                         transform=transform,
-                         function=function,
-                         add_to_container=False)
+    c = Connection(
+        c_in.pre_obj,
+        c_out.post_obj,
+        synapse=synapse,
+        transform=transform,
+        function=function,
+        add_to_container=False,
+    )
     return c
 
 
-def remove_passthrough_nodes(objs, connections,  # noqa: C901
-        create_connection_fn=_create_replacement_connection):
-    """Returns a version of the model without passthrough Nodes
+def remove_passthrough_nodes(  # noqa: C901
+    objs, connections, create_connection_fn=None
+):
+    """Returns a version of the model without passthrough Nodes.
 
     For some backends (such as SpiNNaker), it is useful to remove Nodes that
     have 'None' as their output.  These nodes simply sum their inputs and
@@ -206,6 +194,11 @@ def remove_passthrough_nodes(objs, connections,  # noqa: C901
     will be replaced with equivalent Connections that don't interact with those
     Nodes.
     """
+    # imported here to avoid circular imports
+    from nengo import Node  # pylint: disable=import-outside-toplevel
+
+    if create_connection_fn is None:
+        create_connection_fn = _create_replacement_connection
 
     inputs, outputs = find_all_io(connections)
     result_conn = list(connections)
@@ -213,7 +206,7 @@ def remove_passthrough_nodes(objs, connections,  # noqa: C901
 
     # look for passthrough Nodes to remove
     for obj in objs:
-        if isinstance(obj, nengo.Node) and obj.output is None:
+        if isinstance(obj, Node) and obj.output is None:
             result_objs.remove(obj)
 
             # get rid of the connections to and from this Node
@@ -228,7 +221,8 @@ def remove_passthrough_nodes(objs, connections,  # noqa: C901
             for c_in in inputs[obj]:
                 if c_in.pre_obj is obj:
                     raise Unconvertible(
-                        "Cannot remove a Node with a feedback connection")
+                        "Cannot remove a Node with a feedback connection"
+                    )
 
                 for c_out in outputs[obj]:
                     c = create_connection_fn(c_in, c_out)
@@ -243,7 +237,7 @@ def remove_passthrough_nodes(objs, connections,  # noqa: C901
 
 
 def find_all_io(connections):
-    """Build up a list of all inputs and outputs for each object"""
+    """Build up a list of all inputs and outputs for each object."""
     inputs = collections.defaultdict(list)
     outputs = collections.defaultdict(list)
     for c in connections:

@@ -4,9 +4,14 @@ import weakref
 import numpy as np
 import pytest
 
-from nengo.utils.compat import range
 from nengo.utils.stdlib import (
-    checked_call, groupby, Timer, WeakKeyIDDictionary)
+    checked_call,
+    groupby,
+    Timer,
+    WeakKeyDefaultDict,
+    WeakKeyIDDictionary,
+    WeakSet,
+)
 
 
 def test_checked_call():
@@ -14,14 +19,14 @@ def test_checked_call():
         return a
 
     def func2(a, b=0, **kwargs):
-        return a+b
+        return a + b
 
     def func3(a, b=0, c=0, *args, **kwargs):
-        return a+b+c+sum(args)
+        return a + b + c + sum(args)
 
     func4 = lambda x=[0]: sum(x)
 
-    class A(object):
+    class A:
         def __call__(self, a, b):
             return a + b
 
@@ -52,12 +57,12 @@ def test_checked_call():
 
     assert checked_call(np.sin) == (None, False)
     assert checked_call(np.sin, 0) == (0, True)
-    assert checked_call(np.sin, 0, np.array([1.])) == (np.array([0.]), True)
-    assert checked_call(np.sin, 0, np.array([1.]), 1) == (None, False)
+    assert checked_call(np.sin, 0, np.array([1.0])) == (np.array([0.0]), True)
+    assert checked_call(np.sin, 0, np.array([1.0]), 1) == (None, False)
 
 
 def test_checked_call_errors():
-    class A(object):
+    class A:
         def __call__(self, a):
             raise NotImplementedError()
 
@@ -71,8 +76,8 @@ def test_checked_call_errors():
 
 
 @pytest.mark.parametrize(
-    "hashable, force_list",
-    [(False, False), (False, True), (True, False), (True, True)])
+    "hashable, force_list", [(False, False), (False, True), (True, False), (True, True)]
+)
 def test_groupby(hashable, force_list, rng):
     if hashable:
         keys = list(range(1, 5))
@@ -94,12 +99,12 @@ def test_groupby(hashable, force_list, rng):
     # call groupby
     keygroups = groupby(pairs, lambda p: p[0], force_list=force_list)
 
-    keys2 = sorted(map(lambda x: x[0], keygroups))
+    keys2 = sorted([x[0] for x in keygroups])
     assert keys2 == keys
 
     for key2, keygroup2 in keygroups:
         group = groups[keys.index(key2)]
-        group2 = map(lambda x: x[1], keygroup2)
+        group2 = [x[1] for x in keygroup2]
         assert sorted(group2) == sorted(group)
 
 
@@ -114,6 +119,27 @@ def test_timer():
 class C:
     def method(self):
         pass
+
+
+def test_weakkeydefaultdict():
+    factory = lambda: "default"
+    d = WeakKeyDefaultDict(factory)
+    o = C()
+
+    assert len(d) == 0
+    assert d[o] == "default"
+
+    d[o] = "changed"
+    assert len(d) == 1
+    assert d[o] == "changed"
+
+    del d[o]
+    assert len(d) == 0
+    assert o not in d
+
+    d[o] = "changed"
+    del o
+    assert len(d) == 0
 
 
 def test_make_weakkeydict_from_dict():
@@ -164,8 +190,9 @@ def test_weakkeydict_setdefault(key=C(), value1="v1", value2="v2"):
     assert d[key] is value1
 
 
-def test_weakkeydict_update(in_d={C(): 1, C(): 2, C(): 3}):
+def test_weakkeydict_update():
     """This exercises d.update(), len(d), d.keys(), in d,  d.get(), d[]."""
+    in_d = {C(): 1, C(): 2, C(): 3}
     d = WeakKeyIDDictionary()
     d.update(in_d)
     assert len(d) == len(in_d)
@@ -185,8 +212,8 @@ def test_weakkeydict_delitem():
     d = WeakKeyIDDictionary()
     o1 = C()
     o2 = C()
-    d[o1] = 'something'
-    d[o2] = 'something'
+    d[o1] = "something"
+    d[o2] = "something"
     assert len(d) == 2
     del d[o1]
     assert len(d) == 1
@@ -222,4 +249,21 @@ def test_weakkeydict_frees_values():
     assert sys.getrefcount(weak_v()) > 1  # function argument might make it > 1
     del k
     v = weak_v()
-    assert v is None,  "Value in WeakKeyIDDictionary not garbage collected."
+    assert v is None, "Value in WeakKeyIDDictionary not garbage collected."
+
+
+def test_weakset():
+    s = WeakSet()
+    k = C()
+
+    s.add(k)
+    assert len(s) == 1
+    assert k in s
+
+    s.discard(k)
+    assert len(s) == 0
+    assert k not in s
+
+    s.add(k)
+    del k
+    assert len(s) == 0

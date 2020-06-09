@@ -1,8 +1,4 @@
-"""
-Functions that extend the Python Standard Library.
-"""
-
-from __future__ import absolute_import
+"""Functions that extend the Python Standard Library."""
 
 import collections
 import inspect
@@ -13,10 +9,37 @@ import sys
 import time
 import weakref
 
-from .compat import iteritems, itervalues
+
+class WeakKeyDefaultDict(collections.abc.MutableMapping):
+    """WeakKeyDictionary that allows to define a default."""
+
+    def __init__(self, default_factory, items=None, **kwargs):
+        super().__init__()
+        self.default_factory = default_factory
+        self._data = weakref.WeakKeyDictionary(items, **kwargs)
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def __getitem__(self, key):
+        if key not in self._data:
+            self._data[key] = self.default_factory()
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+
+    def __delitem__(self, key):
+        del self._data[key]
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
 
 
-class WeakKeyIDDictionary(collections.MutableMapping):
+class WeakKeyIDDictionary(collections.abc.MutableMapping):
     """WeakKeyDictionary that uses object ID to hash.
 
     This ignores the ``__eq__`` and ``__hash__`` functions on objects,
@@ -24,6 +47,7 @@ class WeakKeyIDDictionary(collections.MutableMapping):
     """
 
     def __init__(self, *args, **kwargs):
+        super().__init__()
         self._keyrefs = weakref.WeakValueDictionary()
         self._keyvalues = {}
         self._ref2id = {}
@@ -37,7 +61,7 @@ class WeakKeyIDDictionary(collections.MutableMapping):
         return k is self._keyrefs.get(id(k))
 
     def __iter__(self):
-        return itervalues(self._keyrefs)
+        return self._keyrefs.values()
 
     def __len__(self):
         return len(self._keyrefs)
@@ -68,7 +92,7 @@ class WeakKeyIDDictionary(collections.MutableMapping):
         self._id2ref[id(k)] = ref
 
     def __free_value(self, ref):
-        """Free corresponding value when key has no more references"""
+        """Free corresponding value when key has no more references."""
         id_ = self._ref2id[id(ref)]
         # key already removed from _keyrefs since it is a WeakValueDictionary
         del self._keyvalues[id_]
@@ -79,10 +103,10 @@ class WeakKeyIDDictionary(collections.MutableMapping):
         return self._keyvalues[id(k)] if k in self else default
 
     def keys(self):
-        return itervalues(self._keyrefs)
+        return self._keyrefs.values()
 
     def iterkeys(self):
-        return itervalues(self._keyrefs)
+        return self._keyrefs.values()
 
     def items(self):
         for k in self:
@@ -94,17 +118,43 @@ class WeakKeyIDDictionary(collections.MutableMapping):
 
     def update(self, in_dict=None, **kwargs):
         if in_dict is not None:
-            for key, value in iteritems(in_dict):
+            for key, value in in_dict.items():
                 self.__setitem__(key, value)
         if len(kwargs) > 0:
             self.update(kwargs)
 
 
-CheckedCall = collections.namedtuple('CheckedCall', ('value', 'invoked'))
+class WeakSet(collections.abc.MutableSet):
+    """Uses weak references to store the items in the set."""
+
+    def __init__(self, items=None):
+        super().__init__()
+        self._data = weakref.WeakKeyDictionary()
+        if items is not None:
+            self |= items
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def add(self, key):
+        self._data[key] = None
+
+    def discard(self, key):
+        if key in self._data:
+            del self._data[key]
+
+
+CheckedCall = collections.namedtuple("CheckedCall", ("value", "invoked"))
 
 
 def checked_call(func, *args, **kwargs):
-    """Calls func(*args, **kwargs) and checks that invocation was successful.
+    """Calls ``func`` and checks that invocation was successful.
 
     The namedtuple ``(value=func(*args, **kwargs), invoked=True)`` is returned
     if the call is successful. If an exception occurs inside of ``func``, then
@@ -115,7 +165,7 @@ def checked_call(func, *args, **kwargs):
     """
     try:
         return CheckedCall(func(*args, **kwargs), True)
-    except:
+    except Exception:
         tb = inspect.trace()
         if not len(tb) or tb[-1][0] is not inspect.currentframe():
             raise  # exception occurred inside func
@@ -137,7 +187,7 @@ def execfile(path, globals, locals=None):
     if locals is None:
         locals = globals
 
-    with open(path, 'rb') as fp:
+    with open(path, "rb") as fp:
         source = fp.read()
 
     code = compile(source, path, "exec")
@@ -156,70 +206,54 @@ def groupby(objects, key, hashable=None, force_list=True):
         The objects to be grouped.
     key : callable
         The key function by which to group the objects. If
-        `key(obj1) == key(obj2)` then `obj1` and `obj2` are in the same group,
+        ``key(obj1) == key(obj2)`` then ``obj1`` and ``obj2`` are in the same group,
         otherwise they are not.
     hashable : boolean (optional)
         Whether to use the key's hash to determine equality. By default, this
-        will be determined by calling `key` on the first item in `objects`, and
+        will be determined by calling ``key`` on the first item in ``objects``, and
         if it is hashable, the hash will be used. Using a hash is faster, but
         not possible for all keys.
     force_list : boolean (optional)
-        Whether to force the returned `key_groups` iterator, as well as the
-        `group` iterator in each `(key, group)` pair, to be lists.
+        Whether to force the returned ``key_groups`` iterator, as well as the
+        ``group`` iterator in each ``(key, group)`` pair, to be lists.
 
     Returns
     -------
     keygroups : iterable
-        An iterable of `(key, group)` pairs, where `key` is the key used for
-        grouping, and `group` is an iterable of the items in the group. The
-        nature of the iterables depends on the value of `force_list`.
+        An iterable of ``(key, group)`` pairs, where ``key`` is the key used for
+        grouping, and ``group`` is an iterable of the items in the group. The
+        nature of the iterables depends on the value of ``force_list``.
     """
     if hashable is None:
         # get first item without advancing iterator, and see if key is hashable
         objects, objects2 = itertools.tee(iter(objects))
         item0 = next(objects2)
-        hashable = isinstance(key(item0), collections.Hashable)
+        hashable = isinstance(key(item0), collections.abc.Hashable)
 
     if hashable:
         # use a dictionary to sort by hash (faster)
         groups = {}
         for obj in objects:
             groups.setdefault(key(obj), []).append(obj)
-        return list(groups.items()) if force_list else iteritems(groups)
+        return list(groups.items()) if force_list else groups.items()
     else:
         keygroupers = itertools.groupby(sorted(objects, key=key), key=key)
         if force_list:
-            return [(k, [v for v in g]) for k, g in keygroupers]
+            return [(k, list(g)) for k, g in keygroupers]
         else:
             return keygroupers
 
 
-# terminal_size was introduced in Python 3.3
-if hasattr(os, 'terminal_size'):
-    terminal_size = os.terminal_size
-else:
-    terminal_size = collections.namedtuple(
-        'terminal_size', ['columns', 'lines'])
+def get_terminal_size(fallback=(80, 24)):
+    """Look up character width of terminal."""
+
+    try:
+        return shutil.get_terminal_size(fallback)
+    except Exception:  # pragma: no cover
+        return os.terminal_size(fallback)
 
 
-# get_terminal_size was introduced in Python 3.3
-if hasattr(shutil, 'get_terminal_size'):
-    get_terminal_size = shutil.get_terminal_size
-else:
-    def get_terminal_size(fallback=(80, 24)):
-        w, h = fallback
-        try:
-            w = int(os.environ['COLUMNS'])
-        except:
-            pass
-        try:
-            h = int(os.environ['LINES'])
-        except:
-            pass
-        return terminal_size(w, h)
-
-
-class Timer(object):
+class Timer:
     """A context manager for timing a block of code.
 
     Attributes
@@ -232,12 +266,18 @@ class Timer(object):
     end : float
         The time at which the timer ended (in seconds).
 
-    Example
-    -------
-    >>> import time
-    >>> with Timer() as t:
-    ...    time.sleep(1)
-    >>> assert t.duration >= 1
+    Examples
+    --------
+
+    .. testcode::
+
+       import time
+       from nengo.utils.stdlib import Timer
+
+       with Timer() as t:
+          time.sleep(1)
+       assert t.duration >= 1
+
     """
 
     TIMER = time.clock if sys.platform == "win32" else time.time

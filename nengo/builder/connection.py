@@ -5,20 +5,21 @@ import numpy as np
 from nengo.builder import Builder, Signal
 from nengo.builder.ensemble import gen_eval_points, get_activities
 from nengo.builder.node import SimPyFunc
-from nengo.builder.operator import (
-    DotInc, ElementwiseInc, PreserveValue, Reset, SlicedCopy)
+from nengo.builder.operator import Copy, ElementwiseInc, Reset
 from nengo.connection import Connection
-from nengo.dists import Distribution
+from nengo.transforms import Dense, NoTransform
 from nengo.ensemble import Ensemble, Neurons
-from nengo.exceptions import BuildError, ObsoleteError
+from nengo.exceptions import BuildError
 from nengo.neurons import Direct
 from nengo.node import Node
-from nengo.utils.compat import is_iterable, itervalues
+from nengo.rc import rc
+from nengo.solvers import NoSolver, Solver
+from nengo.utils.numpy import is_integer, is_iterable
 
-built_attrs = ['eval_points', 'solver_info', 'weights', 'transform']
+built_attrs = ["eval_points", "solver_info", "weights", "transform"]
 
 
-class BuiltConnection(collections.namedtuple('BuiltConnection', built_attrs)):
+class BuiltConnection(collections.namedtuple("BuiltConnection", built_attrs)):
     """Collects the parameters generated in `.build_connection`.
 
     These are stored here because in the majority of cases the equivalent
@@ -26,9 +27,6 @@ class BuiltConnection(collections.namedtuple('BuiltConnection', built_attrs)):
     of a BuiltConnection are the full NumPy arrays used in the simulation.
 
     See the `.Connection` documentation for more details on each parameter.
-
-    .. note:: The ``decoders`` attribute is obsolete as of Nengo 2.1.0.
-              Use the ``weights`` attribute instead.
 
     Parameters
     ----------
@@ -48,117 +46,145 @@ class BuiltConnection(collections.namedtuple('BuiltConnection', built_attrs)):
 
     def __new__(cls, eval_points, solver_info, weights, transform):
         # Overridden to suppress the default __new__ docstring
-        return tuple.__new__(
-            cls, (eval_points, solver_info, weights, transform))
-
-    @property
-    def decoders(self):
-        raise ObsoleteError("decoders are now part of 'weights'. "
-                            "Access BuiltConnection.weights instead.",
-                            since="v2.1.0")
+        return tuple.__new__(cls, (eval_points, solver_info, weights, transform))
 
 
 def get_eval_points(model, conn, rng):
+    """Get evaluation points for connection."""
+
     if conn.eval_points is None:
         view = model.params[conn.pre_obj].eval_points.view()
         view.setflags(write=False)
+        assert view.dtype == rc.float_dtype
         return view
     else:
         return gen_eval_points(
-            conn.pre_obj, conn.eval_points, rng, conn.scale_eval_points)
+            conn.pre_obj,
+            conn.eval_points,
+            rng,
+            conn.scale_eval_points,
+            dtype=rc.float_dtype,
+        )
 
 
-def get_targets(model, conn, eval_points):
+def get_targets(conn, eval_points, dtype=None):
+    """Get target points for connection with given evaluation points."""
+
+    dtype = rc.float_dtype if dtype is None else dtype
     if conn.function is None:
-        targets = eval_points[:, conn.pre_slice]
+        targets = eval_points[:, conn.pre_slice].astype(dtype)
+    elif isinstance(conn.function, np.ndarray):
+        targets = conn.function
     else:
-        targets = np.zeros((len(eval_points), conn.size_mid))
+        targets = np.zeros((len(eval_points), conn.size_mid), dtype=dtype)
         for i, ep in enumerate(eval_points[:, conn.pre_slice]):
-            targets[i] = conn.function(ep)
+            out = conn.function(ep)
+            if out is None:
+                raise BuildError(
+                    "Building %s: Connection function returned "
+                    "None. Cannot solve for decoders." % (conn,)
+                )
+            targets[i] = out
 
     return targets
 
 
 def build_linear_system(model, conn, rng):
+    """Get all arrays needed to compute decoders."""
     eval_points = get_eval_points(model, conn, rng)
-    activities = get_activities(model, conn.pre_obj, eval_points)
+    ens = conn.pre_obj
+    activities = get_activities(model.params[ens], ens, eval_points)
     if np.count_nonzero(activities) == 0:
         raise BuildError(
             "Building %s: 'activites' matrix is all zero for %s. "
             "This is because no evaluation points fall in the firing "
-            "ranges of any neurons." % (conn, conn.pre_obj))
+            "ranges of any neurons." % (conn, conn.pre_obj)
+        )
 
-    targets = get_targets(model, conn, eval_points)
+    targets = get_targets(conn, eval_points, dtype=rc.float_dtype)
     return eval_points, activities, targets
 
 
-def build_decoders(model, conn, rng, transform):
+def build_decoders(model, conn, rng):
+    """Compute decoders for connection."""
+
     encoders = model.params[conn.pre_obj].encoders
     gain = model.params[conn.pre_obj].gain
     bias = model.params[conn.pre_obj].bias
 
     eval_points = get_eval_points(model, conn, rng)
-    targets = get_targets(model, conn, eval_points)
+    targets = get_targets(conn, eval_points, dtype=rc.float_dtype)
+
+    if conn.solver.weights and not conn.solver.compositional:
+        # solver is solving for the whole weight matrix, so apply
+        # transform/encoders to targets
+        if not isinstance(conn.transform, Dense):
+            raise BuildError(
+                "Non-compositional solvers only work with Dense transforms"
+            )
+        transform = conn.transform.sample(rng=rng)
+        targets = np.dot(targets, transform.T)
+        # weight solvers only allowed on ensemble->ensemble connections
+        assert isinstance(conn.post_obj, Ensemble)
+        post_enc = model.params[conn.post_obj].scaled_encoders
+        targets = np.dot(targets, post_enc.T[conn.post_slice])
 
     x = np.dot(eval_points, encoders.T / conn.pre_obj.radius)
-    E = None
-    if conn.solver.weights:
-        E = model.params[conn.post_obj].scaled_encoders.T[conn.post_slice]
-        # include transform in solved weights
-        targets = multiply(targets, transform.T)
+    wrapped_solver = (
+        model.decoder_cache.wrap_solver(solve_for_decoders)
+        if model.seeded[conn]
+        else solve_for_decoders
+    )
+    decoders, solver_info = wrapped_solver(conn, gain, bias, x, targets, rng=rng)
 
-    try:
-        wrapped_solver = (model.decoder_cache.wrap_solver(solve_for_decoders)
-                          if model.seeded[conn] else solve_for_decoders)
-        decoders, solver_info = wrapped_solver(
-            conn.solver, conn.pre_obj.neuron_type, gain, bias, x, targets,
-            rng=rng, E=E)
-    except BuildError:
+    return eval_points, decoders.T, solver_info
+
+
+def solve_for_decoders(conn, gain, bias, x, targets, rng):
+    """Solver for decoders.
+
+    Factored out from `.build_decoders` for use with the cache system.
+    """
+
+    activities = conn.pre_obj.neuron_type.rates(x, gain, bias)
+    if np.count_nonzero(activities) == 0:
         raise BuildError(
             "Building %s: 'activities' matrix is all zero for %s. "
             "This is because no evaluation points fall in the firing "
-            "ranges of any neurons." % (conn, conn.pre_obj))
+            "ranges of any neurons." % (conn, conn.pre_obj)
+        )
 
-    weights = (decoders.T if conn.solver.weights else
-               multiply(transform, decoders.T))
-    return eval_points, weights, solver_info
-
-
-def solve_for_decoders(
-        solver, neuron_type, gain, bias, x, targets, rng, E=None):
-    activities = neuron_type.rates(x, gain, bias)
-    if np.count_nonzero(activities) == 0:
-        raise BuildError()
-
-    if solver.weights:
-        decoders, solver_info = solver(activities, targets, rng=rng, E=E)
-    else:
-        decoders, solver_info = solver(activities, targets, rng=rng)
-
+    decoders, solver_info = conn.solver(activities, targets, rng=rng)
     return decoders, solver_info
 
 
-def multiply(x, y):
-    if x.ndim <= 2 and y.ndim < 2:
-        return x * y
-    elif x.ndim < 2 and y.ndim == 2:
-        return x.reshape(-1, 1) * y
-    elif x.ndim == 2 and y.ndim == 2:
-        return np.dot(x, y)
-    else:
-        raise BuildError("Tensors not supported (x.ndim = %d, y.ndim = %d)"
-                         % (x.ndim, y.ndim))
-
-
 def slice_signal(model, signal, sl):
+    """Apply a slice operation to given signal."""
     assert signal.ndim == 1
     if isinstance(sl, slice) and (sl.step is None or sl.step == 1):
         return signal[sl]
     else:
-        size = np.arange(signal.size)[sl].size
-        sliced_signal = Signal(np.zeros(size), name="%s.sliced" % signal.name)
-        model.add_op(SlicedCopy(signal, sliced_signal, src_slice=sl))
+        size = np.arange(signal.size, dtype=rc.float_dtype)[sl].size
+        sliced_signal = Signal(shape=size, name="%s.sliced" % signal.name)
+        model.add_op(Copy(signal, sliced_signal, src_slice=sl))
         return sliced_signal
+
+
+@Builder.register(Solver)
+def build_solver(model, solver, conn, rng):
+    """Apply decoder solver to connection."""
+    return build_decoders(model, conn, rng)
+
+
+@Builder.register(NoSolver)
+def build_no_solver(model, solver, conn, rng):
+    """Special builder for NoSolver to skip unnecessary steps."""
+    activities = np.zeros((1, conn.pre_obj.n_neurons), dtype=rc.float_dtype)
+    targets = np.zeros((1, conn.size_mid), dtype=rc.float_dtype)
+    # No need to invoke the cache for NoSolver
+    decoders, solver_info = conn.solver(activities, targets, rng=rng)
+    weights = decoders.T
+    return None, weights, solver_info
 
 
 @Builder.register(Connection)  # noqa: C901
@@ -197,107 +223,150 @@ def build_connection(model, conn):
     # Get input and output connections from pre and post
     def get_prepost_signal(is_pre):
         target = conn.pre_obj if is_pre else conn.post_obj
-        key = 'out' if is_pre else 'in'
+        key = "out" if is_pre else "in"
 
         if target not in model.sig:
-            raise BuildError("Building %s: the %r object %s is not in the "
-                             "model, or has a size of zero."
-                             % (conn, 'pre' if is_pre else 'post', target))
+            raise BuildError(
+                "Building %s: the %r object %s is not in the "
+                "model, or has a size of zero."
+                % (conn, "pre" if is_pre else "post", target)
+            )
         if key not in model.sig[target]:
             raise BuildError(
                 "Building %s: the %r object %s has a %r size of zero."
-                % (conn, 'pre' if is_pre else 'post', target, key))
+                % (conn, "pre" if is_pre else "post", target, key)
+            )
 
         return model.sig[target][key]
 
-    model.sig[conn]['in'] = get_prepost_signal(is_pre=True)
-    model.sig[conn]['out'] = get_prepost_signal(is_pre=False)
+    model.sig[conn]["in"] = get_prepost_signal(is_pre=True)
+    model.sig[conn]["out"] = get_prepost_signal(is_pre=False)
 
-    weights = None
+    decoders = None
+    encoders = None
     eval_points = None
     solver_info = None
-    signal_size = conn.size_out
     post_slice = conn.post_slice
 
-    # Sample transform if given a distribution
-    transform = (conn.transform.sample(conn.size_out, conn.size_mid, rng=rng)
-                 if isinstance(conn.transform, Distribution) else
-                 np.array(conn.transform))
-
     # Figure out the signal going across this connection
-    in_signal = model.sig[conn]['in']
-    if (isinstance(conn.pre_obj, Node) or
-            (isinstance(conn.pre_obj, Ensemble) and
-             isinstance(conn.pre_obj.neuron_type, Direct))):
+    in_signal = model.sig[conn]["in"]
+    if isinstance(conn.pre_obj, Node) or (
+        isinstance(conn.pre_obj, Ensemble)
+        and isinstance(conn.pre_obj.neuron_type, Direct)
+    ):
         # Node or Decoded connection in directmode
-        weights = transform
         sliced_in = slice_signal(model, in_signal, conn.pre_slice)
-        if conn.function is not None:
-            in_signal = Signal(np.zeros(conn.size_mid), name='%s.func' % conn)
-            model.add_op(SimPyFunc(in_signal, conn.function, None, sliced_in))
-        else:
+        if conn.function is None:
             in_signal = sliced_in
+        elif isinstance(conn.function, np.ndarray):
+            raise BuildError("Cannot use function points in direct connection")
+        else:
+            in_signal = Signal(shape=conn.size_mid, name="%s.func" % conn)
+            model.add_op(SimPyFunc(in_signal, conn.function, None, sliced_in))
     elif isinstance(conn.pre_obj, Ensemble):  # Normal decoded connection
-        eval_points, weights, solver_info = build_decoders(
-            model, conn, rng, transform)
+        eval_points, decoders, solver_info = model.build(conn.solver, conn, rng)
         if conn.solver.weights:
-            model.sig[conn]['out'] = model.sig[conn.post_obj.neurons]['in']
-            signal_size = conn.post_obj.neurons.size_in
-            post_slice = Ellipsis  # don't apply slice later
+            model.sig[conn]["out"] = model.sig[conn.post_obj.neurons]["in"]
+
+            # weight solvers only allowed on ensemble->ensemble connections
+            assert isinstance(conn.post_obj, Ensemble)
+
+            encoders = model.params[conn.post_obj].scaled_encoders.T
+            encoders = encoders[conn.post_slice]
+
+            # post slice already applied to encoders (either here or in
+            # `build_decoders`), so don't apply later
+            post_slice = None
     else:
-        weights = transform
         in_signal = slice_signal(model, in_signal, conn.pre_slice)
 
-    if isinstance(conn.post_obj, Neurons):
-        weights = multiply(
-            model.params[conn.post_obj.ensemble].gain[post_slice], weights)
+    # Build transform
+    if conn.solver.weights and not conn.solver.compositional:
+        # special case for non-compositional weight solvers, where
+        # the solver is solving for the full weight matrix. so we don't
+        # need to combine decoders/transform/encoders.
+        weighted, weights = model.build(
+            Dense(decoders.shape, init=decoders), in_signal, rng=rng
+        )
+    else:
+        weighted, weights = model.build(
+            conn.transform, in_signal, decoders=decoders, encoders=encoders, rng=rng
+        )
 
-    # Add operator for applying weights
-    model.sig[conn]['weights'] = Signal(
-        weights, name="%s.weights" % conn, readonly=True)
-    signal = Signal(np.zeros(signal_size), name="%s.weighted" % conn)
-    model.add_op(Reset(signal))
-    op = ElementwiseInc if weights.ndim < 2 else DotInc
-    model.add_op(op(model.sig[conn]['weights'],
-                    in_signal,
-                    signal,
-                    tag="%s.weights_elementwiseinc" % conn))
+    model.sig[conn]["weights"] = weights
 
-    # Add operator for filtering
+    # Build synapse
     if conn.synapse is not None:
-        signal = model.build(conn.synapse, signal)
+        weighted = model.build(conn.synapse, weighted, mode="update")
 
     # Store the weighted-filtered output in case we want to probe it
-    model.sig[conn]['weighted'] = signal
+    model.sig[conn]["weighted"] = weighted
 
-    # Copy to the proper slice
-    model.add_op(SlicedCopy(
-        signal, model.sig[conn]['out'], dst_slice=post_slice,
-        inc=True, tag="%s.gain" % conn))
+    if isinstance(conn.post_obj, Neurons):
+        # Apply neuron gains (we don't need to do this if we're connecting to
+        # an Ensemble, because the gains are rolled into the encoders)
+        gains = Signal(
+            model.params[conn.post_obj.ensemble].gain[post_slice],
+            name="%s.gains" % conn,
+        )
+
+        if is_integer(post_slice) or isinstance(post_slice, slice):
+            sliced_out = model.sig[conn]["out"][post_slice]
+        else:
+            # advanced indexing not supported on Signals, so we need to set up an
+            # intermediate signal and use a Copy op to perform the indexing
+            sliced_out = Signal(shape=gains.shape, name="%s.sliced_out" % conn)
+            model.add_op(Reset(sliced_out))
+            model.add_op(
+                Copy(sliced_out, model.sig[conn]["out"], dst_slice=post_slice, inc=True)
+            )
+
+        model.add_op(
+            ElementwiseInc(
+                gains, weighted, sliced_out, tag="%s.gains_elementwiseinc" % conn,
+            )
+        )
+    else:
+        # Copy to the proper slice
+        model.add_op(
+            Copy(
+                weighted,
+                model.sig[conn]["out"],
+                dst_slice=post_slice,
+                inc=True,
+                tag="%s" % conn,
+            )
+        )
 
     # Build learning rules
     if conn.learning_rule is not None:
+        # TODO: provide a general way for transforms to expose learnable params
+        if not isinstance(conn.transform, (Dense, NoTransform)):
+            raise NotImplementedError(
+                "Learning on connections with %s transforms is not supported"
+                % (type(conn.transform).__name__,)
+            )
+
         rule = conn.learning_rule
         rule = [rule] if not is_iterable(rule) else rule
         targets = []
-        for r in itervalues(rule) if isinstance(rule, dict) else rule:
+        for r in rule.values() if isinstance(rule, dict) else rule:
             model.build(r)
             targets.append(r.modifies)
 
-        if 'encoders' in targets:
-            encoder_sig = model.sig[conn.post_obj]['encoders']
-            if not any(isinstance(op, PreserveValue) and op.dst is encoder_sig
-                       for op in model.operators):
-                encoder_sig.readonly = False
-                model.add_op(PreserveValue(encoder_sig))
-        if 'decoders' in targets or 'weights' in targets:
+        if "encoders" in targets:
+            encoder_sig = model.sig[conn.post_obj]["encoders"]
+            encoder_sig.readonly = False
+        if "decoders" in targets or "weights" in targets:
             if weights.ndim < 2:
                 raise BuildError(
-                    "'transform' must be a 2-dimensional array for learning")
-            model.sig[conn]['weights'].readonly = False
-            model.add_op(PreserveValue(model.sig[conn]['weights']))
+                    "'transform' must be a 2-dimensional array for learning"
+                )
+            model.sig[conn]["weights"].readonly = False
 
-    model.params[conn] = BuiltConnection(eval_points=eval_points,
-                                         solver_info=solver_info,
-                                         transform=transform,
-                                         weights=weights)
+    model.params[conn] = BuiltConnection(
+        eval_points=eval_points,
+        solver_info=solver_info,
+        transform=conn.transform,
+        weights=getattr(weights, "initial_value", None),
+    )

@@ -7,19 +7,23 @@ from nengo.builder.signal import Signal, SignalDict
 from nengo.builder.operator import TimeUpdate
 from nengo.cache import NoDecoderCache
 from nengo.exceptions import BuildError
+from nengo.rc import rc
 
 
-class Model(object):
+class Model:
     """Stores artifacts from the build process, which are used by `.Simulator`.
 
     Parameters
     ----------
-    dt : float, optional (Default: 0.001)
+    dt : float, optional
         The length of a simulator timestep, in seconds.
-    label : str, optional (Default: None)
+    label : str, optional
         A name or description to differentiate models.
-    decoder_cache : DecoderCache, optional (Default: ``NoDecoderCache()``)
+    decoder_cache : DecoderCache, optional
         Interface to a cache for expensive parts of the build process.
+    builder : `nengo.builder.Builder`, optional
+        A ``Builder`` instance to use for building. Defaults to a
+        new ``Builder()``.
 
     Attributes
     ----------
@@ -63,10 +67,12 @@ class Model(object):
         or for the network builder to determine if it is the top-level network.
     """
 
-    def __init__(self, dt=0.001, label=None, decoder_cache=NoDecoderCache()):
+    def __init__(self, dt=0.001, label=None, decoder_cache=None, builder=None):
         self.dt = dt
         self.label = label
-        self.decoder_cache = decoder_cache
+        self.decoder_cache = (
+            NoDecoderCache() if decoder_cache is None else decoder_cache
+        )
 
         # Will be filled in by the network builder
         self.toplevel = None
@@ -80,12 +86,19 @@ class Model(object):
         self.seeded = {}
 
         self.sig = collections.defaultdict(dict)
-        self.sig['common'][0] = Signal(0., readonly=True, name='ZERO')
-        self.sig['common'][1] = Signal(1., readonly=True, name='ONE')
+        self.sig["common"][0] = Signal(
+            np.array(0.0, dtype=rc.float_dtype), readonly=True, name="ZERO"
+        )
+        self.sig["common"][1] = Signal(
+            np.array(1.0, dtype=rc.float_dtype), readonly=True, name="ONE"
+        )
 
-        self.step = Signal(np.array(0, dtype=np.int64), name='step')
-        self.time = Signal(np.array(0, dtype=np.float64), name='time')
+        self.step = Signal(np.array(0, dtype=rc.int_dtype), name="step")
+        self.time = Signal(np.array(0, dtype=rc.float_dtype), name="time")
         self.add_op(TimeUpdate(self.step, self.time))
+
+        self.builder = Builder() if builder is None else builder
+        self.build_callback = None
 
     def __str__(self):
         return "Model: %s" % self.label
@@ -101,10 +114,11 @@ class Model(object):
         the ``operators`` attribute.
         """
         self.operators.append(op)
-        # Fail fast by trying make_step with a temporary sigdict
-        signals = SignalDict()
-        op.init_signals(signals)
-        op.make_step(signals, self.dt, np.random)
+        if rc.getboolean("nengo.Simulator", "fail_fast"):
+            # Fail fast by trying make_step with a temporary sigdict
+            signals = SignalDict()
+            op.init_signals(signals)
+            op.make_step(signals, self.dt, np.random)
 
     def build(self, obj, *args, **kwargs):
         """Build an object into this model.
@@ -116,7 +130,10 @@ class Model(object):
         obj : object
             The object to build into this model.
         """
-        return Builder.build(self, obj, *args, **kwargs)
+        built = self.builder.build(self, obj, *args, **kwargs)
+        if self.build_callback is not None:
+            self.build_callback(obj)
+        return built
 
     def has_built(self, obj):
         """Returns true if the object has already been built in this model.
@@ -137,16 +154,22 @@ class Model(object):
         return obj in self.params
 
 
-class Builder(object):
+class Builder:
     """Manages the build functions known to the Nengo build process.
 
     Consists of two class methods to encapsulate the build function registry.
     All build functions should use the `.Builder.register` method as a
-    decorator. For example::
+    decorator. For example:
 
-        @nengo.builder.Builder.register(MyRule)
-        def build_my_rule(model, my_rule, rule):
-            ...
+    .. testcode::
+
+       class MyRule(nengo.learning_rules.LearningRuleType):
+           modifies = "decoders"
+           ...
+
+       @nengo.builder.Builder.register(MyRule)
+       def build_my_rule(model, my_rule, rule):
+           ...
 
     registers a build function for ``MyRule`` objects.
 
@@ -154,9 +177,18 @@ class Builder(object):
     the `.Model.build` method. `.Model.build` uses the `.Builder.build` method
     to ensure that the correct build function is called based on the type of
     the object passed to it.
-    For example, to build the learning rule type ``my_rule`` from above, do::
+    For example, to build the learning rule type ``my_rule`` from above, do:
 
-        model.build(my_rule, connection.learning_rule)
+    .. testcode::
+
+       with nengo.Network() as net:
+           ens_a = nengo.Ensemble(10, 1)
+           ens_b = nengo.Ensemble(10, 1)
+           my_rule = MyRule()
+           connection = nengo.Connection(ens_a, ens_b, learning_rule_type=my_rule)
+
+       model = nengo.builder.Model()
+       model.build(my_rule, connection.learning_rule)
 
     This will call the ``build_my_rule`` function from above with the arguments
     ``model, my_rule, connection.learning_rule``.
@@ -201,12 +233,11 @@ class Builder(object):
             warnings.warn("Object %s has already been built." % obj)
             return None
 
-        for obj_cls in obj.__class__.__mro__:
+        for obj_cls in type(obj).__mro__:
             if obj_cls in cls.builders:
                 break
         else:
-            raise BuildError(
-                "Cannot build object of type %r" % obj.__class__.__name__)
+            raise BuildError("Cannot build object of type %r" % type(obj).__name__)
 
         return cls.builders[obj_cls](model, obj, *args, **kwargs)
 
@@ -221,10 +252,13 @@ class Builder(object):
         nengo_class : Class
             The type associated with the build function being decorated.
         """
+
         def register_builder(build_fn):
             if nengo_class in cls.builders:
-                warnings.warn("Type '%s' already has a builder. Overwriting."
-                              % nengo_class)
+                warnings.warn(
+                    "Type '%s' already has a builder. Overwriting." % nengo_class
+                )
             cls.builders[nengo_class] = build_fn
             return build_fn
+
         return register_builder

@@ -2,7 +2,15 @@ import numpy as np
 
 from nengo.builder import Builder, Operator, Signal
 from nengo.neurons import (
-    AdaptiveLIF, AdaptiveLIFRate, Izhikevich, LIF, NeuronType, FourierSinusoid)
+    AdaptiveLIF,
+    AdaptiveLIFRate,
+    Izhikevich,
+    LIF,
+    NeuronType,
+    SpikingRectifiedLinear,
+    FourierSinusoid,
+)
+from nengo.rc import rc
 
 
 class SimNeurons(Operator):
@@ -18,9 +26,9 @@ class SimNeurons(Operator):
         The input current.
     output : Signal
         The neuron output signal that will be set.
-    states : list, optional (Default: None)
+    states : list, optional
         A list of additional neuron state signals set by ``step_math``.
-    tag : str, optional (Default: None)
+    tag : str, optional
         A label associated with the operator, for debugging purposes.
 
     Attributes
@@ -45,19 +53,29 @@ class SimNeurons(Operator):
     """
 
     def __init__(self, neurons, J, output, states=None, tag=None):
-        super(SimNeurons, self).__init__(tag=tag)
+        super().__init__(tag=tag)
         self.neurons = neurons
-        self.J = J
-        self.output = output
-        self.states = [] if states is None else states
 
-        self.sets = [output] + self.states
+        self.sets = [output] + ([] if states is None else states)
         self.incs = []
         self.reads = [J]
         self.updates = []
 
+    @property
+    def J(self):
+        return self.reads[0]
+
+    @property
+    def output(self):
+        return self.sets[0]
+
+    @property
+    def states(self):
+        return self.sets[1:]
+
+    @property
     def _descstr(self):
-        return '%s, %s, %s' % (self.neurons, self.J, self.output)
+        return "%s, %s, %s" % (self.neurons, self.J, self.output)
 
     def make_step(self, signals, dt, rng):
         J = signals[self.J]
@@ -66,6 +84,7 @@ class SimNeurons(Operator):
 
         def step_simneurons():
             self.neurons.step_math(dt, J, output, *states)
+
         return step_simneurons
 
 
@@ -93,9 +112,48 @@ def build_neurons(model, neurontype, neurons):
     more than once with the same `.NeuronType` instance.
     """
 
-    model.add_op(SimNeurons(neurons=neurontype,
-                            J=model.sig[neurons]['in'],
-                            output=model.sig[neurons]['out']))
+    model.add_op(
+        SimNeurons(
+            neurons=neurontype,
+            J=model.sig[neurons]["in"],
+            output=model.sig[neurons]["out"],
+        )
+    )
+
+
+@Builder.register(SpikingRectifiedLinear)
+def build_spikingrectifiedlinear(model, spikingrectifiedlinear, neurons):
+    """Builds a `.SpikingRectifiedLinear` object into a model.
+
+    In addition to adding a `.SimNeurons` operator, this build function sets up
+    signals to track the voltage for each neuron.
+
+    Parameters
+    ----------
+    model : Model
+        The model to build into.
+    spikingrectifiedlinear: SpikingRectifiedLinear
+        Neuron type to build.
+    neuron : Neurons
+        The neuron population object corresponding to the neuron type.
+
+    Notes
+    -----
+    Does not modify ``model.params[]`` and can therefore be called
+    more than once with the same `.SpikingRectifiedLinear` instance.
+    """
+
+    model.sig[neurons]["voltage"] = Signal(
+        shape=neurons.size_in, name="%s.voltage" % neurons
+    )
+    model.add_op(
+        SimNeurons(
+            neurons=spikingrectifiedlinear,
+            J=model.sig[neurons]["in"],
+            output=model.sig[neurons]["out"],
+            states=[model.sig[neurons]["voltage"]],
+        )
+    )
 
 
 # @Builder.register(FourierSinusoid)
@@ -149,16 +207,23 @@ def build_lif(model, lif, neurons):
     more than once with the same `.LIF` instance.
     """
 
-    model.sig[neurons]['voltage'] = Signal(
-        np.zeros(neurons.size_in), name="%s.voltage" % neurons)
-    model.sig[neurons]['refractory_time'] = Signal(
-        np.zeros(neurons.size_in), name="%s.refractory_time" % neurons)
-    model.add_op(SimNeurons(
-        neurons=lif,
-        J=model.sig[neurons]['in'],
-        output=model.sig[neurons]['out'],
-        states=[model.sig[neurons]['voltage'],
-                model.sig[neurons]['refractory_time']]))
+    model.sig[neurons]["voltage"] = Signal(
+        shape=neurons.size_in, name="%s.voltage" % neurons
+    )
+    model.sig[neurons]["refractory_time"] = Signal(
+        shape=neurons.size_in, name="%s.refractory_time" % neurons
+    )
+    model.add_op(
+        SimNeurons(
+            neurons=lif,
+            J=model.sig[neurons]["in"],
+            output=model.sig[neurons]["out"],
+            states=[
+                model.sig[neurons]["voltage"],
+                model.sig[neurons]["refractory_time"],
+            ],
+        )
+    )
 
 
 @Builder.register(AdaptiveLIFRate)
@@ -183,12 +248,17 @@ def build_alifrate(model, alifrate, neurons):
     more than once with the same `.AdaptiveLIFRate` instance.
     """
 
-    model.sig[neurons]['adaptation'] = Signal(
-        np.zeros(neurons.size_in), name="%s.adaptation" % neurons)
-    model.add_op(SimNeurons(neurons=alifrate,
-                            J=model.sig[neurons]['in'],
-                            output=model.sig[neurons]['out'],
-                            states=[model.sig[neurons]['adaptation']]))
+    model.sig[neurons]["adaptation"] = Signal(
+        shape=neurons.size_in, name="%s.adaptation" % neurons
+    )
+    model.add_op(
+        SimNeurons(
+            neurons=alifrate,
+            J=model.sig[neurons]["in"],
+            output=model.sig[neurons]["out"],
+            states=[model.sig[neurons]["adaptation"]],
+        )
+    )
 
 
 @Builder.register(AdaptiveLIF)
@@ -214,18 +284,27 @@ def build_alif(model, alif, neurons):
     more than once with the same `.AdaptiveLIF` instance.
     """
 
-    model.sig[neurons]['voltage'] = Signal(
-        np.zeros(neurons.size_in), name="%s.voltage" % neurons)
-    model.sig[neurons]['refractory_time'] = Signal(
-        np.zeros(neurons.size_in), name="%s.refractory_time" % neurons)
-    model.sig[neurons]['adaptation'] = Signal(
-        np.zeros(neurons.size_in), name="%s.adaptation" % neurons)
-    model.add_op(SimNeurons(neurons=alif,
-                            J=model.sig[neurons]['in'],
-                            output=model.sig[neurons]['out'],
-                            states=[model.sig[neurons]['voltage'],
-                                    model.sig[neurons]['refractory_time'],
-                                    model.sig[neurons]['adaptation']]))
+    model.sig[neurons]["voltage"] = Signal(
+        shape=neurons.size_in, name="%s.voltage" % neurons
+    )
+    model.sig[neurons]["refractory_time"] = Signal(
+        shape=neurons.size_in, name="%s.refractory_time" % neurons
+    )
+    model.sig[neurons]["adaptation"] = Signal(
+        shape=neurons.size_in, name="%s.adaptation" % neurons
+    )
+    model.add_op(
+        SimNeurons(
+            neurons=alif,
+            J=model.sig[neurons]["in"],
+            output=model.sig[neurons]["out"],
+            states=[
+                model.sig[neurons]["voltage"],
+                model.sig[neurons]["refractory_time"],
+                model.sig[neurons]["adaptation"],
+            ],
+        )
+    )
 
 
 @Builder.register(Izhikevich)
@@ -250,15 +329,21 @@ def build_izhikevich(model, izhikevich, neurons):
     more than once with the same `.Izhikevich` instance.
     """
 
-    model.sig[neurons]['voltage'] = Signal(
-        np.ones(neurons.size_in) * izhikevich.reset_voltage,
-        name="%s.voltage" % neurons)
-    model.sig[neurons]['recovery'] = Signal(
-        np.ones(neurons.size_in)
+    model.sig[neurons]["voltage"] = Signal(
+        np.ones(neurons.size_in, dtype=rc.float_dtype) * izhikevich.reset_voltage,
+        name="%s.voltage" % neurons,
+    )
+    model.sig[neurons]["recovery"] = Signal(
+        np.ones(neurons.size_in, dtype=rc.float_dtype)
         * izhikevich.reset_voltage
-        * izhikevich.coupling, name="%s.recovery" % neurons)
-    model.add_op(SimNeurons(neurons=izhikevich,
-                            J=model.sig[neurons]['in'],
-                            output=model.sig[neurons]['out'],
-                            states=[model.sig[neurons]['voltage'],
-                                    model.sig[neurons]['recovery']]))
+        * izhikevich.coupling,
+        name="%s.recovery" % neurons,
+    )
+    model.add_op(
+        SimNeurons(
+            neurons=izhikevich,
+            J=model.sig[neurons]["in"],
+            output=model.sig[neurons]["out"],
+            states=[model.sig[neurons]["voltage"], model.sig[neurons]["recovery"]],
+        )
+    )

@@ -6,7 +6,7 @@ On this page, we'll go over the changes between Nengo 1.4 and 2.0.
 They will first be reviewed heuristically in the section Big Changes, before
 being broken down practically in Changes to Common Functions
 
-Big Changes
+Big changes
 ===========
 
 Objects instead of strings
@@ -87,7 +87,7 @@ meaning that you can run the same model
 with different timesteps to see if
 there is a marked functional difference.
 
-Changes to Common Functions
+Changes to common functions
 ---------------------------
 
 Many commonly used functions have been
@@ -96,24 +96,22 @@ simplified or changed to be more explicit.
 Making ensembles
 ----------------
 
-Old API signature::
+Old API example::
 
-  nef.Network.make(name, neurons, dimensions, tau_rc, tau_ref, max_rate, intercept, radius, encoders, decoder_noise, eval_points, noise, noise_frequency, mode, add_to_network, node_factory, decoder_sign, seed, quick, storage_code)
+   nef.Network.make('A', 40, 1, mode='spike')
 
-A simple example::
+New API example:
 
-  nef.Network.make('A', 40, 1, mode='spike')
+.. testsetup::
 
-New API signature::
+   net = nengo.Network()
+   net.__enter__()
 
-  nengo.Ensemble(neurons, dimensions, radius, encoders, intercepts, max_rates, eval_points, neuron_type, seed, label)
+.. testcode::
 
-A simple example::
+   A = nengo.Ensemble(40, 1, neuron_type=nengo.LIF(), label='A')
 
-  A = nengo.Ensemble(40, 1, neuron_type=nengo.LIF(), label='A')
-
-See `Ensemble documentation <user_api.html#ensemble>`_
-for a list of properties that can be manipulated.
+See `nengo.Ensemble` for the full API specification.
 
 Making ensemble arrays (i.e., network arrays)
 ---------------------------------------------
@@ -127,18 +125,25 @@ though the syntax has changed.
 
 Old API::
 
-  nef.Network.make_array(name, neurons, length, dimensions, **args)
+   nef.Network.make_array(name, neurons, length, dimensions, **args)
 
-New API::
+New API:
 
-  nengo.networks.EnsembleArray(name, neurons, n_ensembles, dimensions_per_ensemble, **ens_args)
+.. testsetup::
 
-See `EnsembleArray documentation <networks.html#ensemblearray>`_
-for more information.
+   neurons = 1
+   n_ensembles = 1
+   dimensions_per_ensemble = 1
+   ens_args = {}
 
-Changes to Common Functions
+.. testcode::
+
+   nengo.networks.EnsembleArray(neurons, n_ensembles, dimensions_per_ensemble, **ens_args)
+
+See `nengo.networks.EnsembleArray` for more information.
+
+Changes to common functions
 ===========================
-
 
 Making nodes
 ------------
@@ -147,38 +152,42 @@ Previously, there were several different ways
 to provide input to a Nengo model:
 ``SimpleNode``, ``FunctionInput``, and others.
 All of these use cases should be covered
-by :class:`nengo.Node`.
+by `nengo.Node`.
 
 In the old API, you could create your own
 ``SimpleNode``, or create a ``FunctionInput`` with::
 
-  nef.Network.make_input(name, values, zero_after_time)
+   nef.Network.make_input(name, values, zero_after_time)
 
-In the new API, you create a node with::
+In the new API, you create a node with:
 
-  nengo.Node(output)
+.. testsetup::
+
+   output = [0]
+
+.. testcode::
+
+   nengo.Node(output)
 
 where ``output`` is either a constant value
 (float, list, NumPy array), a function, or
 ``None`` when passing through values unchanged.
 
-See `Node documentation <user_api.html#node>`_
-for more information.
+See `nengo.Node` for more information.
 
 Making inputs
 -------------
 
 In the old API, inputs were defined as::
 
-  # Piecewise example
-  net.make_input("contextinput", {0.0:[0, 0.1], 0.5:[1, 0], 1.0:[0, 1]})
-  # Periodic white noise
-  net.make_fourier_input('fin1', base=0.1, high=10, power=0.5, seed=12)
+   # Piecewise example
+   net.make_input("contextinput", {0.0:[0, 0.1], 0.5:[1, 0], 1.0:[0, 1]})
+   # Periodic white noise
+   net.make_fourier_input('fin1', base=0.1, high=10, power=0.5, seed=12)
 
 Inputs are just nodes whose sole function are to output a function.
 
-See the first example `Node documentation <user_api.html#node>`_
-for an example of this.
+Many of the :doc:`examples` use function output nodes.
 
 Terminations and Origins
 ------------------------
@@ -188,37 +197,52 @@ that uses an example ensemble called ``ens`` who's input needs to be
 transformed by a two-dimensional identity function, ``[[1,0],[0,1]]``.
 
 Nengo 1.4::
-  ens.addDecodedTermination("term_name", transform=MU.I(2))
 
-Nengo 2.0::
-  # first create a simple pass-through node
-  term_name = nengo.Node(label="term_name")
-  # now connect the pass-through node to the ensemble
-  nengo.Connection(term_name, ens, transform=np.eye(2))
+   ens.addDecodedTermination("term_name", transform=MU.I(2))
+
+Nengo 2.0:
+
+.. testsetup::
+
+   ens = nengo.Ensemble(2, 2)
+
+.. testcode::
+
+   # first create a simple pass-through node
+   term_name = nengo.Node(size_in=2, label="term_name")
+   # now connect the pass-through node to the ensemble
+   nengo.Connection(term_name, ens, transform=np.eye(2))
 
 Same, thing but instead of a decoded origin, we want one that connects
 directly to the ensemble's neurons.
 
 Nengo 1.4::
-  ens.addTermination("term_name", transform=MU.I(2))
 
-Nengo 2.0::
-  # first create a simple pass-through node
-  term_name = nengo.Node(label="term_name")
-  # now connect the pass-through node to the ensemble neurons
-  nengo.Connection(term_name, ens.neurons, transform=np.eye(2))
+   ens.addTermination("term_name", transform=MU.I(2))
+
+Nengo 2.0:
+
+.. testcode::
+
+   # first create a simple pass-through node
+   term_name = nengo.Node(size_in=2, label="term_name")
+   # now connect the pass-through node to the ensemble neurons
+   nengo.Connection(term_name, ens.neurons, transform=np.eye(2))
 
 One more time, but with an output and no transform.
 
 Nengo 1.4::
-  ens.addDecodedOrigin("origin_name")
 
-Nengo 2.0::
-  # first create a simple pass-through node
-  origin_name = nengo.Node(label="origin_name")
-  # now connect the pass-through node to the ensemble
-  nengo.Connection(ens, origin_name, transform=np.eye(2))
+   ens.addDecodedOrigin("origin_name")
 
+Nengo 2.0:
+
+.. testcode::
+
+   # first create a simple pass-through node
+   origin_name = nengo.Node(size_in=2, label="origin_name")
+   # now connect the pass-through node to the ensemble
+   nengo.Connection(ens, origin_name, transform=np.eye(2))
 
 Connecting things
 -----------------
@@ -228,11 +252,18 @@ has been pushed down to the constructors
 of the connection object.
 In general, old API calls of the form::
 
-  nef.Network.connect(pre, post)
+   nef.Network.connect(pre, post)
 
-are now::
+are now:
 
-  nengo.Connection(pre, post)
+.. testsetup::
+
+   pre = nengo.Ensemble(10, 2)
+   post = nengo.Ensemble(10, 2)
+
+.. testcode::
+
+   nengo.Connection(pre, post)
 
 However, there are some changes in the additional arguments.
 The old API used ``weight``, ``index_pre`` and ``index_post``
@@ -241,15 +272,14 @@ in the new API, only the ``transform`` can be specified.
 There are many NumPy functions that make transforms
 easier to specify.
 Additionally, we now utilize Python's slice syntax
-to route dimensions easily::
+to route dimensions easily:
 
-  nengo.Connection(pre_1d, post_2d[0])
+.. testcode::
+
+   nengo.Connection(pre[0], post[1])
 
 The keyword argument ``pstc`` has been renamed to ``synapse``.
 
-Under the hood changes
-======================
+.. testcleanup::
 
-Under the hood, Nengo has been completely rewritten.
-If you want to know the underlying structure of
-Nengo 2.0, see the `developer documentation <dev_guide.html>`_.
+   net.__exit__(None, None, None)

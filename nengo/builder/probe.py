@@ -1,63 +1,72 @@
-import numpy as np
-
 from nengo.builder import Builder, Signal
-from nengo.builder.operator import Reset
+from nengo.builder.operator import Copy, Reset
 from nengo.connection import Connection, LearningRule
 from nengo.ensemble import Ensemble, Neurons
 from nengo.exceptions import BuildError
 from nengo.node import Node
 from nengo.probe import Probe
-from nengo.utils.compat import iteritems
 
 
 def conn_probe(model, probe):
-    # Connection probes create a connection from the target, and probe
-    # the resulting signal (used when you want to probe the default
-    # output of an object, which may not have a predefined signal)
+    """Build a "connection" probe type.
 
-    conn = Connection(probe.target, probe, synapse=probe.synapse,
-                      solver=probe.solver, add_to_container=False)
+    Connection probes create a connection from the target, and probe
+    the resulting signal (used when you want to probe the default
+    output of an object, which may not have a predefined signal).
+    """
+
+    conn = Connection(
+        probe.target,
+        probe,
+        synapse=probe.synapse,
+        solver=probe.solver,
+        add_to_container=False,
+    )
 
     # Set connection's seed to probe's (which isn't used elsewhere)
     model.seeded[conn] = model.seeded[probe]
     model.seeds[conn] = model.seeds[probe]
 
     # Make a sink signal for the connection
-    model.sig[probe]['in'] = Signal(np.zeros(conn.size_out), name=str(probe))
-    model.add_op(Reset(model.sig[probe]['in']))
+    model.sig[probe]["in"] = Signal(shape=conn.size_out, name=str(probe))
+    model.add_op(Reset(model.sig[probe]["in"]))
 
     # Build the connection
     model.build(conn)
 
 
 def signal_probe(model, key, probe):
-    # Signal probes directly probe a target signal
+    """Build a "signal" probe type.
+
+    Signal probes directly probe a target signal.
+    """
 
     try:
         sig = model.sig[probe.obj][key]
     except IndexError:
+        raise BuildError("Attribute %r is not probeable on %s." % (key, probe.obj))
+
+    if sig is None:
         raise BuildError(
-            "Attribute %r is not probeable on %s." % (key, probe.obj))
+            "Attribute %r on %s is None, cannot be probed" % (key, probe.obj)
+        )
 
     if probe.slice is not None:
         sig = sig[probe.slice]
 
     if probe.synapse is None:
-        model.sig[probe]['in'] = sig
+        model.sig[probe]["in"] = sig
     else:
-        model.sig[probe]['in'] = model.build(probe.synapse, sig)
+        model.sig[probe]["in"] = Signal(shape=sig.shape, name=str(probe))
+        model.sig[probe]["filtered"] = model.build(probe.synapse, sig, mode="update")
+        model.add_op(Copy(model.sig[probe]["filtered"], model.sig[probe]["in"]))
 
 
 probemap = {
-    Ensemble: {'decoded_output': None,
-               'input': 'in'},
-    Neurons: {'output': None,
-              'spikes': None,
-              'rates': None,
-              'input': 'in'},
-    Node: {'output': None},
-    Connection: {'output': 'weighted',
-                 'input': 'in'},
+    Ensemble: {"decoded_output": None, "input": "in", "scaled_encoders": "encoders"},
+    Neurons: {"output": None, "spikes": None, "rates": None, "input": "in"},
+    Node: {"output": None},
+    Connection: {"output": "weighted", "input": "in"},
     LearningRule: {},  # make LR signals probeable, but no mapping required
 }
 
@@ -93,12 +102,11 @@ def build_probe(model, probe):
     """
 
     # find the right parent class in `objtypes`, using `isinstance`
-    for nengotype, probeables in iteritems(probemap):
+    for nengotype, probeables in probemap.items():
         if isinstance(probe.obj, nengotype):
             break
     else:
-        raise BuildError(
-            "Type %r is not probeable" % probe.obj.__class__.__name__)
+        raise BuildError("Type %r is not probeable" % type(probe.obj).__name__)
 
     key = probeables[probe.attr] if probe.attr in probeables else probe.attr
     if key is None:

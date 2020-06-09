@@ -1,13 +1,13 @@
 import nengo
-from nengo.utils.functions import piecewise
-from nengo.utils.numpy import rmse
+from nengo.processes import Piecewise
+from nengo.utils.numpy import rms
 
 
 def test_integrator(Simulator, plt, seed):
     model = nengo.Network(seed=seed)
     with model:
         inputs = {0: 0, 0.2: 1, 1: 0, 2: -2, 3: 0, 4: 1, 5: 0}
-        input = nengo.Node(piecewise(inputs))
+        input = nengo.Node(Piecewise(inputs))
 
         tau = 0.1
         T = nengo.networks.Integrator(tau, n_neurons=100, dimensions=1)
@@ -24,10 +24,10 @@ def test_integrator(Simulator, plt, seed):
     with Simulator(model) as sim:
         sim.run(6.0)
 
-    t = sim.trange(dt=0.01)
-    plt.plot(t, sim.data[A_p], label='Manual')
-    plt.plot(t, sim.data[T_p], label='Template')
-    plt.plot(t, sim.data[input_p], 'k', label='Input')
-    plt.legend(loc='best')
+    t = sim.trange(sample_every=0.01)
+    plt.plot(t, sim.data[A_p], label="Manual")
+    plt.plot(t, sim.data[T_p], label="Template")
+    plt.plot(t, sim.data[input_p], "k", label="Input")
+    plt.legend(loc="best")
 
-    assert rmse(sim.data[A_p], sim.data[T_p]) < 0.1
+    assert rms(sim.data[A_p] - sim.data[T_p]) < 0.1

@@ -1,9 +1,6 @@
-from __future__ import absolute_import
-
 import numpy as np
 
 from . import numpy as npext
-from .compat import range
 
 
 def tuning_curves(ens, sim, inputs=None):
@@ -13,7 +10,7 @@ def tuning_curves(ens, sim, inputs=None):
     ensemble.
 
     For 1-dimensional ensembles, the unpacked return value of this function
-    can be passed directly to :func:`matplotlib.pyplot.plot`.
+    can be passed directly to ``matplotlib.pyplot.plot``.
 
     Parameters
     ----------
@@ -24,26 +21,29 @@ def tuning_curves(ens, sim, inputs=None):
         ensemble does not have tuning curves assigned to it.)
     inputs : sequence of ndarray, optional
         The inputs at which the tuning curves will be evaluated. For each of
-        the `D` ensemble dimensions one array of dimensionality `D` is needed.
+        the ``D`` ensemble dimensions one array of dimensionality ``D`` is needed.
         The output of :func:`numpy.meshgrid` with ``indexing='ij'`` is in the
         right format.
 
     Returns
     -------
     inputs : sequence of ndarray
-        The passed or auto-generated `inputs`.
+        The passed or auto-generated ``inputs``.
     activities : ndarray
-        The activities of the individual neurons given the `inputs`.
-        For ensembles with 1 dimension, the rows correspond to the `inputs`
+        The activities of the individual neurons given the ``inputs``.
+        For ensembles with 1 dimension, the rows correspond to the ``inputs``
         and the columns to individual neurons.
-        For ensembles with > 1 dimension, the first dimension enumerates the
-        neurons, the remaining dimensions map to `inputs`.
+        For ensembles with > 1 dimension, the last dimension enumerates the
+        neurons, the remaining dimensions map to ``inputs``.
 
     See Also
     --------
     response_curves
     """
-    from nengo.builder.ensemble import get_activities
+    # note: imported here to avoid circular imports
+    from nengo.builder.ensemble import (  # pylint: disable=import-outside-toplevel
+        get_activities,
+    )
 
     if inputs is None:
         inputs = np.linspace(-ens.radius, ens.radius)
@@ -52,9 +52,11 @@ def tuning_curves(ens, sim, inputs=None):
         else:
             inputs = [inputs]
         inputs = np.asarray(inputs).T
+    else:
+        inputs = np.asarray(inputs)
 
     eval_points = inputs.reshape((-1, ens.dimensions))
-    activities = get_activities(sim.model, ens, eval_points)
+    activities = get_activities(sim.data[ens], ens, eval_points)
     return inputs, activities.reshape(inputs.shape[:-1] + (-1,))
 
 
@@ -80,10 +82,10 @@ def response_curves(ens, sim, inputs=None):
     Returns
     -------
     inputs : 1d array
-        The passed or auto-generated `inputs`.
+        The passed or auto-generated ``inputs``.
     activities : 2d array
-        The activities of the individual neurons given the `inputs`. The rows
-        map to `inputs` and the colmuns to the neurons in the ensemble.
+        The activities of the individual neurons given the ``inputs``. The rows
+        map to ``inputs`` and the columns to the neurons in the ensemble.
 
     See Also
     --------
@@ -92,13 +94,7 @@ def response_curves(ens, sim, inputs=None):
 
     if inputs is None:
         inputs = np.linspace(-1.0, 1.0)
-
-    x = np.atleast_2d(inputs).T
-    activities = ens.neuron_type.rates(
-        x, sim.data[ens].gain, sim.data[ens].bias)
-    activities = np.squeeze(activities)
-
-    return inputs, activities
+    return inputs, ens.neuron_type.rates(inputs, sim.data[ens].gain, sim.data[ens].bias)
 
 
 def _similarity(encoders, index, rows, cols=1):
@@ -116,7 +112,7 @@ def _similarity(encoders, index, rows, cols=1):
     cols: int
         The height of the 2d grid.
     """
-    i = index % cols   # find the 2d location of the indexth element
+    i = index % cols  # find the 2d location of the indexth element
     j = index // cols
 
     sim = 0  # total of dot products
@@ -160,20 +156,36 @@ def sorted_neurons(ensemble, sim, iterations=100, seed=None):
     You can use this to generate an array of sorted indices for plotting. This
     can be done after collecting the data. E.g.
 
-    >>> indices = sorted_neurons(simulator, 'My neurons')
-    >>> plt.figure()
-    >>> rasterplot(sim.data['My neurons.spikes'][:,indices])
+    .. testcode::
 
-    Algorithm
-    ---------
+       from nengo.utils.ensemble import sorted_neurons
+       from nengo.utils.matplotlib import rasterplot
+
+       with nengo.Network() as net:
+           ens = nengo.Ensemble(10, 1)
+           ens_p = nengo.Probe(ens.neurons)
+
+       with nengo.Simulator(net) as sim:
+           sim.run(0.1)
+
+           indices = sorted_neurons(ens, sim)
+           rasterplot(sim.trange(), sim.data[ens_p][:, indices])
+
+    .. testoutput::
+       :hide:
+
+       ...
+
+    Notes
+    -----
     The algorithm is for each encoder in the initial set, randomly
     pick another encoder and check to see if swapping those two
     encoders would reduce the average difference between the
     encoders and their neighbours.  Difference is measured as the
     dot product.  Each encoder has four neighbours (N, S, E, W),
     except for the ones on the edges which have fewer (no wrapping).
-    This algorithm is repeated `iterations` times, so a total of
-    `iterations*N` swaps are considered.
+    This algorithm is repeated ``iterations`` times, so a total of
+    ``iterations*N`` swaps are considered.
     """
 
     # Normalize all the encoders
@@ -191,14 +203,12 @@ def sorted_neurons(ensemble, sim, iterations=100, seed=None):
             j = target[i]
             if i != j:  # if not swapping with yourself
                 # compute similarity score how we are (unswapped)
-                sim1 = (_similarity(encoders, i, N)
-                        + _similarity(encoders, j, N))
+                sim1 = _similarity(encoders, i, N) + _similarity(encoders, j, N)
                 # swap the encoder
                 encoders[[i, j], :] = encoders[[j, i], :]
                 indices[[i, j]] = indices[[j, i]]
                 # compute similarity score how we are (swapped)
-                sim2 = (_similarity(encoders, i, N)
-                        + _similarity(encoders, j, N))
+                sim2 = _similarity(encoders, i, N) + _similarity(encoders, j, N)
 
                 # if we were better unswapped
                 if sim1 > sim2:

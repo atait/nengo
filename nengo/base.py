@@ -1,14 +1,21 @@
+from copy import copy
 import warnings
 
 import numpy as np
 
+import nengo
 from nengo.config import SupportDefaultsMixin
-from nengo.exceptions import ValidationError
+from nengo.exceptions import NotAddedToNetworkWarning, ValidationError
 from nengo.params import (
-    FrozenObject, is_param, IntParam, NumberParam, Parameter, StringParam,
-    Unconfigurable)
-from nengo.utils.compat import is_integer, range, with_metaclass
-from nengo.utils.numpy import as_shape, maxint
+    FrozenObject,
+    IntParam,
+    iter_params,
+    NumberParam,
+    Parameter,
+    StringParam,
+    Unconfigurable,
+)
+from nengo.utils.numpy import as_shape, maxint, maxseed, is_integer
 
 
 class NetworkMember(type):
@@ -21,18 +28,17 @@ class NetworkMember(type):
 
     def __call__(cls, *args, **kwargs):
         """Override default __call__ behavior so that Network.add is called."""
-        from nengo.network import Network
         inst = cls.__new__(cls)
-        add_to_container = kwargs.pop('add_to_container', True)
+        add_to_container = kwargs.pop("add_to_container", True)
         # Do the __init__ before adding in case __init__ errors out
         inst.__init__(*args, **kwargs)
         if add_to_container:
-            Network.add(inst)
-        inst._initialized = True  # value doesn't matter, just existance
+            nengo.Network.add(inst)
+        inst._initialized = True
         return inst
 
 
-class NengoObject(with_metaclass(NetworkMember, SupportDefaultsMixin)):
+class NengoObject(SupportDefaultsMixin, metaclass=NetworkMember):
     """A base class for Nengo objects.
 
     Parameters
@@ -50,54 +56,91 @@ class NengoObject(with_metaclass(NetworkMember, SupportDefaultsMixin)):
         The seed used for random number generation.
     """
 
-    label = StringParam('label', default=None, optional=True)
-    seed = IntParam('seed', default=None, optional=True)
+    # Order in which parameters have to be initialized.
+    # Missing parameters will be initialized last in an undefined order.
+    # This is needed for pickling and copying of Nengo objects when the
+    # parameter initialization order matters.
+    _param_init_order = []
+
+    label = StringParam("label", default=None, optional=True)
+    seed = IntParam("seed", default=None, low=0, high=maxseed, optional=True)
 
     def __init__(self, label, seed):
+        super().__init__()
+        self._initialized = False
         self.label = label
         self.seed = seed
 
     def __getstate__(self):
-        raise NotImplementedError("Nengo objects do not support pickling")
+        state = self.__dict__.copy()
+        state["_initialized"] = False
+
+        for attr in self.params:
+            param = getattr(type(self), attr)
+            if self in param:
+                state[attr] = getattr(self, attr)
+
+        return state
 
     def __setstate__(self, state):
-        raise NotImplementedError("Nengo objects do not support pickling")
+        for attr in self._param_init_order:
+            setattr(self, attr, state.pop(attr))
+
+        for attr in self.params:
+            if attr in state:
+                setattr(self, attr, state.pop(attr))
+
+        for k, v in state.items():
+            setattr(self, k, v)
+
+        self._initialized = True
+        if len(nengo.Network.context) > 0:
+            warnings.warn(NotAddedToNetworkWarning(self))
 
     def __setattr__(self, name, val):
-        if hasattr(self, '_initialized') and not hasattr(self, name):
+        initialized = hasattr(self, "_initialized") and self._initialized
+        if initialized and not hasattr(self, name):
             warnings.warn(
                 "Creating new attribute '%s' on '%s'. "
                 "Did you mean to change an existing attribute?" % (name, self),
-                SyntaxWarning)
-        super(NengoObject, self).__setattr__(name, val)
+                SyntaxWarning,
+            )
+        super().__setattr__(name, val)
 
     def __str__(self):
-        return self._str(
-            include_id=not hasattr(self, 'label') or self.label is None)
+        return self._str(include_id=not hasattr(self, "label") or self.label is None)
 
     def __repr__(self):
         return self._str(include_id=True)
 
     def _str(self, include_id):
         return "<%s%s%s>" % (
-            self.__class__.__name__,
-            "" if not hasattr(self, 'label') else
-            " (unlabeled)" if self.label is None else
-            ' "%s"' % self.label,
-            " at 0x%x" % id(self) if include_id else "")
-
-    @classmethod
-    def param_list(cls):
-        """Returns a list of parameter names that can be set."""
-        return (attr for attr in dir(cls) if is_param(getattr(cls, attr)))
+            type(self).__name__,
+            ""
+            if not hasattr(self, "label")
+            else " (unlabeled)"
+            if self.label is None
+            else ' "%s"' % self.label,
+            " at 0x%x" % id(self) if include_id else "",
+        )
 
     @property
     def params(self):
         """Returns a list of parameter names that can be set."""
-        return self.param_list()
+        return list(iter_params(self))
+
+    def copy(self, add_to_container=True):
+        with warnings.catch_warnings():
+            # We warn when copying since we can't change add_to_container.
+            # However, we deal with it here, so we ignore the warning.
+            warnings.simplefilter("ignore", category=NotAddedToNetworkWarning)
+            c = copy(self)
+        if add_to_container:
+            nengo.Network.add(c)
+        return c
 
 
-class ObjView(object):
+class ObjView:
     """Container for a slice with respect to some object.
 
     This is used by the __getitem__ of Neurons, Node, and Ensemble, in order
@@ -109,34 +152,33 @@ class ObjView(object):
 
     def __init__(self, obj, key=slice(None)):
         self.obj = obj
+
+        # Node.size_in != size_out, so one of these can be invalid
+        # NumPy <= 1.8 raises a ValueError instead of an IndexError.
+        try:
+            self.size_in = np.arange(self.obj.size_in)[key].size
+        except (IndexError, ValueError):
+            self.size_in = None
+        try:
+            self.size_out = np.arange(self.obj.size_out)[key].size
+        except (IndexError, ValueError):
+            self.size_out = None
+        if self.size_in is None and self.size_out is None:
+            raise IndexError("Invalid slice '%s' of %s" % (key, self.obj))
+
         if is_integer(key):
             # single slices of the form [i] should be cast into
             # slice objects for convenience
             if key == -1:
                 # special case because slice(-1, 0) gives the empty list
-                key = slice(key, None)
+                self.slice = slice(key, None)
             else:
-                key = slice(key, key+1)
-        self.slice = key
+                self.slice = slice(key, key + 1)
+        else:
+            self.slice = key
 
-        # Node.size_in != size_out, so one of these can be invalid
-        try:
-            self.size_in = np.arange(self.obj.size_in)[self.slice].size
-        except IndexError:
-            self.size_in = None
-        try:
-            self.size_out = np.arange(self.obj.size_out)[self.slice].size
-        except IndexError:
-            self.size_out = None
-        if self.size_in is None and self.size_out is None:
-            raise ValidationError("Invalid slice '%s' of %s"
-                                  % (self.slice, self.obj), attr='key')
-
-    def __getstate__(self):
-        raise NotImplementedError("Nengo objects do not support pickling")
-
-    def __setstate__(self, state):
-        raise NotImplementedError("Nengo objects do not support pickling")
+    def copy(self):
+        return copy(self)
 
     def __len__(self):
         return self.size_out
@@ -161,48 +203,59 @@ class ObjView(object):
 
 
 class NengoObjectParam(Parameter):
-    def __init__(self, name, optional=False, readonly=True,
-                 nonzero_size_in=False, nonzero_size_out=False):
+    def __init__(
+        self,
+        name,
+        optional=False,
+        readonly=True,
+        nonzero_size_in=False,
+        nonzero_size_out=False,
+    ):
         default = Unconfigurable  # These can't have defaults
         self.nonzero_size_in = nonzero_size_in
         self.nonzero_size_out = nonzero_size_out
-        super(NengoObjectParam, self).__init__(
-            name, default, optional, readonly)
+        super().__init__(name, default, optional, readonly)
 
-    def validate(self, instance, nengo_obj):
-        from nengo.ensemble import Neurons
-        from nengo.connection import LearningRule
-        if not isinstance(nengo_obj, (
-                NengoObject, ObjView, Neurons, LearningRule)):
-            raise ValidationError("'%s' is not a Nengo object" % nengo_obj,
-                                  attr=self.name, obj=instance)
+    def coerce(self, instance, nengo_obj):
+        nengo_objects = (
+            NengoObject,
+            ObjView,
+            nengo.ensemble.Neurons,
+            nengo.connection.LearningRule,
+        )
+        if not isinstance(nengo_obj, nengo_objects):
+            raise ValidationError(
+                "'%s' is not a Nengo object" % nengo_obj, attr=self.name, obj=instance
+            )
         if self.nonzero_size_in and nengo_obj.size_in < 1:
-            raise ValidationError("'%s' must have size_in > 0." % nengo_obj,
-                                  attr=self.name, obj=instance)
+            raise ValidationError(
+                "'%s' must have size_in > 0." % nengo_obj, attr=self.name, obj=instance
+            )
         if self.nonzero_size_out and nengo_obj.size_out < 1:
-            raise ValidationError("'%s' must have size_out > 0." % nengo_obj,
-                                  attr=self.name, obj=instance)
-        super(NengoObjectParam, self).validate(instance, nengo_obj)
+            raise ValidationError(
+                "'%s' must have size_out > 0." % nengo_obj, attr=self.name, obj=instance
+            )
+        return super().coerce(instance, nengo_obj)
 
 
 class Process(FrozenObject):
     """A general system with input, output, and state.
 
     For more details on how to use processes and make
-    custom process subclasses, see :doc:`examples/processes`.
+    custom process subclasses, see :doc:`examples/advanced/processes`.
 
     Parameters
     ----------
-    default_size_in : int (Default: 0)
+    default_size_in : int
         Sets the default size in for nodes using this process.
-    default_size_out : int (Default: 1)
+    default_size_out : int
         Sets the default size out for nodes running this process. Also,
         if ``d`` is not specified in `~.Process.run` or `~.Process.run_steps`,
         this will be used.
-    default_dt : float (Default: 0.001 (1 millisecond))
+    default_dt : float
         If ``dt`` is not specified in `~.Process.run`, `~.Process.run_steps`,
         `~.Process.ntrange`, or `~.Process.trange`, this will be used.
-    seed : int, optional (Default: None)
+    seed : int, optional
         Random number seed. Ensures random factors will be the same each run.
 
     Attributes
@@ -220,14 +273,15 @@ class Process(FrozenObject):
         Random number seed. Ensures random factors will be the same each run.
     """
 
-    default_size_in = IntParam('default_size_in', low=0)
-    default_size_out = IntParam('default_size_out', low=0)
-    default_dt = NumberParam('default_dt', low=0, low_open=True)
-    seed = IntParam('seed', low=0, high=maxint, optional=True)
+    default_size_in = IntParam("default_size_in", low=0)
+    default_size_out = IntParam("default_size_out", low=0)
+    default_dt = NumberParam("default_dt", low=0, low_open=True)
+    seed = IntParam("seed", low=0, high=maxseed, optional=True)
 
-    def __init__(self, default_size_in=0, default_size_out=1,
-                 default_dt=0.001, seed=None):
-        super(Process, self).__init__()
+    def __init__(
+        self, default_size_in=0, default_size_out=1, default_dt=0.001, seed=None
+    ):
+        super().__init__()
         self.default_size_in = default_size_in
         self.default_size_out = default_size_out
         self.default_dt = default_dt
@@ -243,13 +297,13 @@ class Process(FrozenObject):
         ----------
         x : ndarray
             The input signal given to the process.
-        d : int, optional (Default: None)
+        d : int, optional
             Output dimensionality. If None, ``default_size_out`` will be used.
-        dt : float, optional (Default: None)
+        dt : float, optional
             Simulation timestep. If None, ``default_dt`` will be used.
-        rng : `numpy.random.RandomState` (Default: ``numpy.random``)
+        rng : `numpy.random.RandomState`
             Random number generator used for stochstic processes.
-        copy : bool, optional (Default: True)
+        copy : bool, optional
             If True, a new output array will be created for output.
             If False, the input signal ``x`` will be overwritten.
         """
@@ -257,10 +311,11 @@ class Process(FrozenObject):
         shape_out = as_shape(self.default_size_out if d is None else d)
         dt = self.default_dt if dt is None else dt
         rng = self.get_rng(rng)
-        step = self.make_step(shape_in, shape_out, dt, rng, **kwargs)
+        state = self.make_state(shape_in, shape_out, dt)
+        step = self.make_step(shape_in, shape_out, dt, rng, state, **kwargs)
         output = np.zeros((len(x),) + shape_out) if copy else x
         for i, xi in enumerate(x):
-            output[i] = step((i+1) * dt, xi)
+            output[i] = step((i + 1) * dt, xi)
         return output
 
     def get_rng(self, rng):
@@ -274,10 +329,40 @@ class Process(FrozenObject):
         seed = rng.randint(maxint) if self.seed is None else self.seed
         return np.random.RandomState(seed)
 
-    def make_step(self, shape_in, shape_out, dt, rng):
+    def make_state(self, shape_in, shape_out, dt, dtype=None):
+        """Get a dictionary of signals to represent the state of this process.
+
+        The builder uses this to allocate memory for the process state, so
+        that the state can be represented as part of the whole simulator state.
+
+        .. versionadded:: 3.0.0
+
+        Parameters
+        ----------
+        shape_in : tuple
+            The shape of the input signal.
+        shape_out : tuple
+            The shape of the output signal.
+        dt : float
+            The simulation timestep.
+        dtype : `numpy.dtype`
+            The data type requested by the builder. If `None`, then this
+            function is free to choose the best type for the signals involved.
+
+        Returns
+        -------
+        initial_state : {string: `numpy.ndarray`}
+            A dictionary mapping keys to arrays containing the initial state
+            values. The keys will be used to identify the signals in
+            `.Process.make_step`.
+        """
+        return {}  # Implement if the process has a state
+
+    def make_step(self, shape_in, shape_out, dt, rng, state):
         """Create function that advances the process forward one time step.
 
-        This must be implemented by all custom processes.
+        This must be implemented by all custom processes. The parameters below
+        indicate what information is provided by the builder.
 
         Parameters
         ----------
@@ -289,6 +374,12 @@ class Process(FrozenObject):
             The simulation timestep.
         rng : `numpy.random.RandomState`
             A random number generator.
+        state : {string: `numpy.ndarray`}
+            A dictionary mapping keys to signals, where the signals fully
+            represent the state of the process. The signals are initialized
+            by `.Process.make_state`.
+
+            .. versionadded:: 3.0.0
         """
         raise NotImplementedError("Process must implement `make_step` method.")
 
@@ -302,11 +393,11 @@ class Process(FrozenObject):
         ----------
         t : float
             The length of time to run.
-        d : int, optional (Default: None)
+        d : int, optional
             Output dimensionality. If None, ``default_size_out`` will be used.
-        dt : float, optional (Default: None)
+        dt : float, optional
             Simulation timestep. If None, ``default_dt`` will be used.
-        rng : `numpy.random.RandomState` (Default: ``numpy.random``)
+        rng : `numpy.random.RandomState`
             Random number generator used for stochstic processes.
         """
         dt = self.default_dt if dt is None else dt
@@ -323,21 +414,22 @@ class Process(FrozenObject):
         ----------
         n_steps : int
             The number of steps to run.
-        d : int, optional (Default: None)
+        d : int, optional
             Output dimensionality. If None, ``default_size_out`` will be used.
-        dt : float, optional (Default: None)
+        dt : float, optional
             Simulation timestep. If None, ``default_dt`` will be used.
-        rng : `numpy.random.RandomState` (Default: ``numpy.random``)
+        rng : `numpy.random.RandomState`
             Random number generator used for stochstic processes.
         """
         shape_in = as_shape(0)
         shape_out = as_shape(self.default_size_out if d is None else d)
         dt = self.default_dt if dt is None else dt
         rng = self.get_rng(rng)
-        step = self.make_step(shape_in, shape_out, dt, rng, **kwargs)
+        state = self.make_state(shape_in, shape_out, dt)
+        step = self.make_step(shape_in, shape_out, dt, rng, state, **kwargs)
         output = np.zeros((n_steps,) + shape_out)
         for i in range(n_steps):
-            output[i] = step((i+1) * dt)
+            output[i] = step((i + 1) * dt)
         return output
 
     def ntrange(self, n_steps, dt=None):
@@ -347,7 +439,7 @@ class Process(FrozenObject):
         ----------
         n_steps : int
             The given number of steps.
-        dt : float, optional (Default: None)
+        dt : float, optional
             Simulation timestep. If None, ``default_dt`` will be used.
         """
         dt = self.default_dt if dt is None else dt
@@ -360,7 +452,7 @@ class Process(FrozenObject):
         ----------
         t : float
             The given length of time.
-        dt : float, optional (Default: None)
+        dt : float, optional
             Simulation timestep. If None, ``default_dt`` will be used.
         """
         dt = self.default_dt if dt is None else dt
@@ -371,10 +463,6 @@ class Process(FrozenObject):
 class ProcessParam(Parameter):
     """Must be a Process."""
 
-    def validate(self, instance, process):
-        super(ProcessParam, self).validate(instance, process)
-        if process is not None and not isinstance(process, Process):
-            raise ValidationError(
-                "Must be Process (got type %r)" % process.__class__.__name__,
-                attr=self.name, obj=instance)
-        return process
+    def coerce(self, instance, process):
+        self.check_type(instance, process, Process)
+        return super().coerce(instance, process)

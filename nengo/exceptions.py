@@ -9,22 +9,25 @@ class NengoException(Exception):
     """
 
 
+class NengoWarning(Warning):
+    """Base class for Nengo warnings."""
+
+
 class ValidationError(NengoException, ValueError):
     """A ValueError encountered during validation of a parameter."""
 
     def __init__(self, msg, attr, obj=None):
         self.attr = attr
         self.obj = obj
-        super(ValidationError, self).__init__(msg)
+        super().__init__(msg)
 
     def __str__(self):
         if self.obj is None:
-            return "{}: {}".format(
-                self.attr, super(ValidationError, self).__str__())
-        klassname = (self.obj.__name__ if inspect.isclass(self.obj)
-                     else self.obj.__class__.__name__)
-        return "{}.{}: {}".format(
-            klassname, self.attr, super(ValidationError, self).__str__())
+            return "{}: {}".format(self.attr, super().__str__())
+        klassname = (
+            self.obj.__name__ if inspect.isclass(self.obj) else type(self.obj).__name__
+        )
+        return "{}.{}: {}".format(klassname, self.attr, super().__str__())
 
 
 class ReadonlyError(ValidationError):
@@ -33,7 +36,7 @@ class ReadonlyError(ValidationError):
     def __init__(self, attr, obj=None, msg=None):
         if msg is None:
             msg = "%s is read-only and cannot be changed" % attr
-        super(ReadonlyError, self).__init__(msg, attr, obj)
+        super().__init__(msg, attr, obj)
 
 
 class BuildError(NengoException, ValueError):
@@ -46,14 +49,30 @@ class ObsoleteError(NengoException):
     def __init__(self, msg, since=None, url=None):
         self.since = since
         self.url = url
-        super(ObsoleteError, self).__init__(msg)
+        super().__init__(msg)
 
     def __str__(self):
         return "Obsolete%s: %s%s" % (
             "" if self.since is None else " since %s" % self.since,
-            super(ObsoleteError, self).__str__(),
+            super().__str__(),
             "\nFor more information, please visit %s" % self.url
-            if self.url is not None else "")
+            if self.url is not None
+            else "",
+        )
+
+
+class MovedError(NengoException):
+    """A feature that has been moved elsewhere.
+
+    .. versionadded:: 3.0.0
+    """
+
+    def __init__(self, location=None):
+        self.location = location
+        super().__init__()
+
+    def __str__(self):
+        return "This feature has been moved to %s" % self.location
 
 
 class ConfigError(NengoException, ValueError):
@@ -98,3 +117,23 @@ class CacheIOError(NengoException, IOError):
 
 class TimeoutError(NengoException):
     """A timeout occurred while waiting for a resource."""
+
+
+class NotAddedToNetworkWarning(NengoWarning):
+    """A NengoObject has not been added to a network."""
+
+    def __init__(self, obj):
+        self.obj = obj
+        super().__init__()
+
+    def __str__(self):
+        return (
+            "{obj} was not added to the network. When copying objects, "
+            "use the copy method on the object instead of Python's copy "
+            "module. When unpickling objects, they have to be added to "
+            "networks manually.".format(obj=self.obj)
+        )
+
+
+class CacheIOWarning(NengoWarning):
+    """A non-critical issue in accessing files in the cache."""

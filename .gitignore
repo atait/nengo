@@ -28,4 +28,5 @@ docs/examples/**/*.py  # For .ipynb examples converted to .py
 .ci/*.sh
 docs/.doctrees
 
+nengo/__pycache__
 examples/lightwave_stuff/discreteTimeLorenzFiles/*

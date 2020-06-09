@@ -13,6 +13,7 @@ from nengo.params import (
 from nengo.rc import rc
 from nengo.utils.filter_design import cont2discrete, tf2ss
 from nengo.utils.numpy import as_shape, is_number
+from numba import njit
 
 
 class Synapse(Process):
@@ -286,6 +287,8 @@ class LinearFilter(Synapse):
 
         if LinearFilter.NoX.check(A, B, C, D, X):
             return LinearFilter.NoX(A, B, C, D, X)
+        if LinearFilter.OneXOneIn.check(A, B, C, D, X):
+            return LinearFilter.OneXOneIn(A, B, C, D, X)
         elif LinearFilter.OneX.check(A, B, C, D, X):
             return LinearFilter.OneX(A, B, C, D, X)
         elif LinearFilter.NoD.check(A, B, C, D, X):
@@ -347,14 +350,35 @@ class LinearFilter(Synapse):
             self.a = A.item()
             self.b = C.item() * B.item()
 
+        @staticmethod
+        @njit(cache=True)
+        def jit_compiled_mult(a, b, X, s):
+            X *= a
+            X += b * s
+            return X[0]
+
         def __call__(self, t, signal):
-            self.X *= self.a
-            self.X += self.b * signal
-            return self.X[0]
+            return self.jit_compiled_mult(self.a, self.b, self.X, signal)
 
         @classmethod
         def check(cls, A, B, C, D, X):
             return super().check(A, B, C, D, X) and (len(A) == 1 and (D == 0).all())
+
+    class OneXOneIn(OneX):
+        """ Step for systems with one state element, no passthrough, and a size-1 input.
+            Using the elemental float datatypes improves performance for most synapses
+        """
+        def __init__(self, A, B, C, D, X):
+            super().__init__(A, B, C, D, X)
+            self.X = self.X.item()  # make scalar
+
+        def __call__(self, t, signal):
+            self.X = self.a * self.X + self.b * signal.item()
+            return self.X
+
+        @classmethod
+        def check(cls, A, B, C, D, X):
+            return super().check(A, B, C, D, X) and (X.shape == (1,1))
 
     class NoD(Step):
         """Step for systems with no passthrough matrix (D).

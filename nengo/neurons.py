@@ -585,7 +585,7 @@ class LIF(LIFRate):
         # note that refractory times that have completed midway into this
         # timestep will be given a partial timestep, and moreover these will
         # be subtracted to zero at the next timestep (or reset by a spike)
-        delta_t = (dt - refractory_time).clip(0, dt)
+        delta_t = np.clip((dt - refractory_time), 0, dt)
 
         # update voltage using discretized lowpass filter
         # since v(t) = v(0) + (J - v(0))*(1 - exp(-t/tau)) assuming

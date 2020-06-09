@@ -33,6 +33,12 @@ maxseed = np.iinfo(np.uint32).max
 maxint = np.iinfo(np.int32).max
 
 
+# numpy 1.17 introduced a slowdown to clip
+npversion = [int(st) for st in np.__version__.split('.')]
+if 17 <= npversion[1] and npversion[1] <= 18:
+    np.clip = np.core.umath.clip
+
+
 def is_integer(obj):
     """Check if ``obj`` is an integer type."""
     return isinstance(obj, (int, np.integer))

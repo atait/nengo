@@ -37,6 +37,28 @@ drive robots, and even simulate your model
 on a completely different neural simulator
 or neuromorphic hardware.
 
+********************
+The atait/nengo fork
+********************
+This fork includes feature/fix and experimental branches by atait. The main branch is "atait-dev". Individual branches that have been merged are kept around in case they lead to a pull request. Branches are described here
+
+optimizations-core
+==================
+Speed up some core functionality, such as
+
+- precomputing sparse matrices
+
+- storing results of missed dictionary lookups.
+
+- One new synapse for 1-input, 1-output only. It uses natural float variables instead of 1x1 np arrays of floats
+
+- just-in-time compile of a workhorse linear operation
+
+
+********************************
+Back to nengo main documentation
+********************************
+
 Installation
 ============
 

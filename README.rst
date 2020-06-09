@@ -54,6 +54,13 @@ Speed up some core functionality, such as
 
 - just-in-time compile of a workhorse linear operation
 
+neuromorphic-photonics-SciRep-paper
+===================================
+`Neuromorphic photonic networks using silicon photonic weight banks <https://doi.org/10.1038/s41598-017-07754-z>`_
+
+Solving an ordinary differential equation (Lorenz) with models of a photonic modulator neuron. Includes files for reproducing the conventional benchmark in matlab and comparing the two.
+
+In the nengo package, there is a new neuron for a Mach-Zehnder photonic neuron. Everything else is in the examples directory.
 
 ********************************
 Back to nengo main documentation

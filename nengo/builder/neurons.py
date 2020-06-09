@@ -8,6 +8,7 @@ from nengo.neurons import (
     LIF,
     NeuronType,
     SpikingRectifiedLinear,
+    FourierSinusoid,
 )
 from nengo.rc import rc
 
@@ -154,6 +155,35 @@ def build_spikingrectifiedlinear(model, spikingrectifiedlinear, neurons):
         )
     )
 
+
+# @Builder.register(FourierSinusoid)
+# def build_alifrate(model, fosin, neurons):
+#     """Builds an `.FourierSinusoid` object into a model.
+
+#     In addition to adding a `.SimNeurons` operator, this build function sets up
+#     signals to track the voltage term for each modulator.
+
+#     Parameters
+#     ----------
+#     model : Model
+#         The model to build into.
+#     fosin : FourierSinusoid
+#         Neuron type to build.
+#     neuron : Neurons
+#         The neuron population object corresponding to the neuron type.
+
+#     Notes
+#     -----
+#     Does not modify ``model.params[]`` and can therefore be called
+#     more than once with the same `.AdaptiveLIFRate` instance.
+#     """
+
+#     model.sig[neurons]['voltage'] = Signal(
+#         np.zeros(neurons.size_in), name="%s.voltage" % neurons)
+#     model.add_op(SimNeurons(neurons=fosin,
+#                             J=model.sig[neurons]['in'],
+#                             output=model.sig[neurons]['out'],
+#                             states=[model.sig[neurons]['voltage']]))
 
 @Builder.register(LIF)
 def build_lif(model, lif, neurons):

@@ -51,6 +51,7 @@ from .neurons import (
     RectifiedLinear,
     Sigmoid,
     SpikingRectifiedLinear,
+    FourierSinusoid,
 )
 from .network import Network
 from .learning_rules import PES, BCM, Oja, Voja

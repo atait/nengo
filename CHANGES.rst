@@ -29,6 +29,23 @@ Release history
 - Added the ``step_order`` attribute to ``nengo.Simulator``, which contains an
   ordered list of the operations run on each timestep.
   (`#1615 <https://github.com/nengo/nengo/pull/1615>`__)
+- Added the ``make_state`` method to ``NeuronType``, which initializes the
+  neuron type's state variables. (`#1609`_)
+- Added the ``spiking`` attribute to ``NeuronType``, which exposes whether
+  a neuron type is spiking or non-spiking. (`#1609`_)
+- Added the ``negative`` attribute to ``NeuronType``, which indicates whether
+  the neuron type can have negative outputs. (`#1609`_)
+- Added the ``Tanh`` neuron type to simulate hyperbolic tangent neurons. (`#1609`_)
+- Added the ``RatesToSpikesNeuronType``, which is a base class for neuron types
+  that convert a rate-based type to a spiking one. (`#1609`_)
+- Added the ``RegularSpiking`` neuron type, which emits regularly-spaced spikes
+  at the rate specified by its base type. (`#1609`_)
+- Added the ``StochasticSpiking`` neuron type, which emits spikes based on stochastic
+  rounding to roughly match the rate specified by its base type. (`#1609`_)
+- Added the ``PoissonSpiking`` neuron type, which emits Poisson-distributed spikes,
+  as are commonly used to match biological spiking statistics. (`#1609`_)
+- Added the ``PositiveNeuronType`` test argument to run tests on all neuron types
+  for which ``negative`` is not ``True``. (`#1609`_)
 
 **Changed**
 
@@ -42,6 +59,24 @@ Release history
   read-only, to prevent users from accidentally overwriting them with their own data.
   (`#1545 <https://github.com/nengo/nengo/issues/1545>`__,
   `#1608 <https://github.com/nengo/nengo/pull/1608>`__)
+- The ``NeuronType.step_math`` method has been renamed to ``NeuronType.step``.
+  (`#1609`_)
+- Neuron types can now create arbitrary state variables without needing to register
+  a new build function. The ``state`` class attribute declares the neuron type's
+  state variables and their default initial values. All ``__init__`` methods accept
+  an ``initial_state`` dictionary for users to override the default initial state
+  values. (`#1609`_)
+- The ``nl`` and ``nl_nodirect`` test arguments have been renamed to ``AnyNeuronType``
+  and ``NonDirectNeuronType``. (`#1609`_)
+- Weight solvers (i.e. those with ``weights=True``) are now allowed on all connections.
+  For connections that are not between ``Ensembles``, though, weight solvers have the
+  same effects as solvers with ``weights=False``, and a warning will be raised.
+  (`#1626 <https://github.com/nengo/nengo/pull/1626>`__)
+
+**Deprecated**
+
+- ``NeuronType.step`` replaces the ``NeuronType.step_math`` method,
+  which will be removed in Nengo 4.0.0. (`#1609`_)
 
 **Fixed**
 
@@ -55,6 +90,8 @@ Release history
 - Fixed a bug where the ``LstsqDrop`` solver errored when solving for zero weights.
   (`#1541 <https://github.com/nengo/nengo/issues/1541>`__,
   `#1607 <https://github.com/nengo/nengo/pull/1607>`__)
+
+.. _#1609: https://github.com/nengo/nengo/pull/1609
 
 3.0.0 (November 18, 2019)
 =========================

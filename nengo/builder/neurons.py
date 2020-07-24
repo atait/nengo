@@ -1,32 +1,26 @@
 import numpy as np
 
 from nengo.builder import Builder, Operator, Signal
-from nengo.neurons import (
-    AdaptiveLIF,
-    AdaptiveLIFRate,
-    Izhikevich,
-    LIF,
-    NeuronType,
-    SpikingRectifiedLinear,
-)
-from nengo.rc import rc
+from nengo.exceptions import BuildError
+from nengo.neurons import NeuronType, RatesToSpikesNeuronType
+from nengo.utils.numpy import is_array_like
 
 
 class SimNeurons(Operator):
     """Set a neuron model output for the given input current.
 
-    Implements ``neurons.step_math(dt, J, output, *states)``.
+    Implements ``neurons.step(dt, J, **state)``.
 
     Parameters
     ----------
     neurons : NeuronType
-        The `.NeuronType`, which defines a ``step_math`` function.
+        The `.NeuronType`, which defines a ``step`` function.
     J : Signal
         The input current.
     output : Signal
-        The neuron output signal that will be set.
-    states : list, optional
-        A list of additional neuron state signals set by ``step_math``.
+        The neuron output signal that will be set
+    state : list, optional
+        A list of additional neuron state signals set by ``step``.
     tag : str, optional
         A label associated with the operator, for debugging purposes.
 
@@ -35,30 +29,45 @@ class SimNeurons(Operator):
     J : Signal
         The input current.
     neurons : NeuronType
-        The `.NeuronType`, which defines a ``step_math`` function.
+        The `.NeuronType`, which defines a ``step`` function.
     output : Signal
         The neuron output signal that will be set.
-    states : list
-        A list of additional neuron state signals set by ``step_math``.
+    state : list
+        A list of additional neuron state signals set by ``step``.
     tag : str or None
         A label associated with the operator, for debugging purposes.
 
     Notes
     -----
-    1. sets ``[output] + states``
+    1. sets ``[output] + state``
     2. incs ``[]``
     3. reads ``[J]``
     4. updates ``[]``
     """
 
-    def __init__(self, neurons, J, output, states=None, tag=None):
+    def __init__(self, neurons, J, output, state=None, tag=None):
         super().__init__(tag=tag)
         self.neurons = neurons
 
-        self.sets = [output] + ([] if states is None else states)
+        self.sets = [output]
         self.incs = []
         self.reads = [J]
         self.updates = []
+
+        self.state_idxs = {}
+        self.state_extra = {}
+        if state is not None:
+            for name, obj in state.items():
+                if isinstance(obj, Signal):
+                    # The signals actually stored in `self.sets` can be modified by the
+                    # optimizer. To allow this possibility, we store the index of the
+                    # signal in the sets list instead of storing the signal itself.
+                    self.state_idxs[name] = len(self.sets)
+                    self.sets.append(obj)
+                else:
+                    # The only supported extra is a RandomState right now
+                    assert isinstance(obj, np.random.RandomState)
+                    self.state_extra[name] = obj
 
     @property
     def J(self):
@@ -69,32 +78,32 @@ class SimNeurons(Operator):
         return self.sets[0]
 
     @property
-    def states(self):
-        return self.sets[1:]
+    def state(self):
+        return {key: self.sets[idx] for key, idx in self.state_idxs.items()}
 
     @property
     def _descstr(self):
-        return "%s, %s, %s" % (self.neurons, self.J, self.output)
+        return "%s, %s" % (self.neurons, self.J)
 
     def make_step(self, signals, dt, rng):
         J = signals[self.J]
         output = signals[self.output]
-        states = [signals[state] for state in self.states]
+        state = {name: signals[sig] for name, sig in self.state.items()}
+        state.update(self.state_extra)
 
         def step_simneurons():
-            self.neurons.step_math(dt, J, output, *states)
+            self.neurons.step(dt, J, output, **state)
 
         return step_simneurons
 
 
 @Builder.register(NeuronType)
-def build_neurons(model, neurontype, neurons):
+def build_neurons(model, neurontype, neurons, input_sig=None, output_sig=None):
     """Builds a `.NeuronType` object into a model.
 
-    This build function works with any `.NeuronType` that does not require
-    extra state, like `.RectifiedLinear` and `.LIFRate`. This function adds a
-    `.SimNeurons` operator connecting the input current to the
-    neural output signals.
+    This function adds a `.SimNeurons` operator connecting the input current to the
+    neural output signals, and handles any additional state variables defined
+    within the neuron type.
 
     Parameters
     ----------
@@ -110,28 +119,50 @@ def build_neurons(model, neurontype, neurons):
     Does not modify ``model.params[]`` and can therefore be called
     more than once with the same `.NeuronType` instance.
     """
+    input_sig = model.sig[neurons]["in"] if input_sig is None else input_sig
+    output_sig = model.sig[neurons]["out"] if output_sig is None else output_sig
+
+    dtype = input_sig.dtype
+    n_neurons = neurons.size_in
+    rng = np.random.RandomState(model.seeds[neurons.ensemble] + 1)
+    state_init = neurontype.make_state(n_neurons, rng=rng, dtype=dtype)
+    state = {}
+
+    for key, init in state_init.items():
+        if key in model.sig[neurons]:
+            raise BuildError("State name %r overlaps with existing signal name" % key)
+        if is_array_like(init):
+            model.sig[neurons][key] = Signal(
+                initial_value=init, name="%s.%s" % (neurons, key)
+            )
+            state[key] = model.sig[neurons][key]
+        elif isinstance(init, np.random.RandomState):
+            # Pass through RandomState instances
+            state[key] = init
+        else:
+            raise BuildError(
+                "State %r is of type %r. Only array-likes and RandomStates are "
+                "currently supported." % (key, type(init).__name__)
+            )
 
     model.add_op(
-        SimNeurons(
-            neurons=neurontype,
-            J=model.sig[neurons]["in"],
-            output=model.sig[neurons]["out"],
-        )
+        SimNeurons(neurons=neurontype, J=input_sig, output=output_sig, state=state)
     )
 
 
-@Builder.register(SpikingRectifiedLinear)
-def build_spikingrectifiedlinear(model, spikingrectifiedlinear, neurons):
-    """Builds a `.SpikingRectifiedLinear` object into a model.
+@Builder.register(RatesToSpikesNeuronType)
+def build_rates_to_spikes(model, neurontype, neurons):
+    """Builds a `.RatesToSpikesNeuronType` object into a model.
 
-    In addition to adding a `.SimNeurons` operator, this build function sets up
-    signals to track the voltage for each neuron.
+    This function adds two `.SimNeurons` operators. The first one handles
+    simulating the base_type, converting input signals into rates. The second
+    one takes those rates as input and emits spikes.
 
     Parameters
     ----------
     model : Model
         The model to build into.
-    spikingrectifiedlinear: SpikingRectifiedLinear
+    neurontype : RatesToSpikesNeuronType
         Neuron type to build.
     neuron : Neurons
         The neuron population object corresponding to the neuron type.
@@ -139,181 +170,20 @@ def build_spikingrectifiedlinear(model, spikingrectifiedlinear, neurons):
     Notes
     -----
     Does not modify ``model.params[]`` and can therefore be called
-    more than once with the same `.SpikingRectifiedLinear` instance.
+    more than once with the same `.NeuronType` instance.
     """
 
-    model.sig[neurons]["voltage"] = Signal(
-        shape=neurons.size_in, name="%s.voltage" % neurons
+    in_sig = model.sig[neurons]["in"]
+    out_sig = model.sig[neurons]["out"]
+    rate_sig = Signal(
+        shape=model.sig[neurons]["in"].shape, name="%s.rate_out" % (neurons,),
     )
-    model.add_op(
-        SimNeurons(
-            neurons=spikingrectifiedlinear,
-            J=model.sig[neurons]["in"],
-            output=model.sig[neurons]["out"],
-            states=[model.sig[neurons]["voltage"]],
-        )
-    )
+    model.sig[neurons]["rate_out"] = rate_sig
 
-
-@Builder.register(LIF)
-def build_lif(model, lif, neurons):
-    """Builds a `.LIF` object into a model.
-
-    In addition to adding a `.SimNeurons` operator, this build function sets up
-    signals to track the voltage and refractory times for each neuron.
-
-    Parameters
-    ----------
-    model : Model
-        The model to build into.
-    lif : LIF
-        Neuron type to build.
-    neuron : Neurons
-        The neuron population object corresponding to the neuron type.
-
-    Notes
-    -----
-    Does not modify ``model.params[]`` and can therefore be called
-    more than once with the same `.LIF` instance.
-    """
-
-    model.sig[neurons]["voltage"] = Signal(
-        shape=neurons.size_in, name="%s.voltage" % neurons
-    )
-    model.sig[neurons]["refractory_time"] = Signal(
-        shape=neurons.size_in, name="%s.refractory_time" % neurons
-    )
-    model.add_op(
-        SimNeurons(
-            neurons=lif,
-            J=model.sig[neurons]["in"],
-            output=model.sig[neurons]["out"],
-            states=[
-                model.sig[neurons]["voltage"],
-                model.sig[neurons]["refractory_time"],
-            ],
-        )
+    # build the base neuron type
+    build_neurons(
+        model, neurontype.base_type, neurons, input_sig=in_sig, output_sig=rate_sig
     )
 
-
-@Builder.register(AdaptiveLIFRate)
-def build_alifrate(model, alifrate, neurons):
-    """Builds an `.AdaptiveLIFRate` object into a model.
-
-    In addition to adding a `.SimNeurons` operator, this build function sets up
-    signals to track the adaptation term for each neuron.
-
-    Parameters
-    ----------
-    model : Model
-        The model to build into.
-    alifrate : AdaptiveLIFRate
-        Neuron type to build.
-    neuron : Neurons
-        The neuron population object corresponding to the neuron type.
-
-    Notes
-    -----
-    Does not modify ``model.params[]`` and can therefore be called
-    more than once with the same `.AdaptiveLIFRate` instance.
-    """
-
-    model.sig[neurons]["adaptation"] = Signal(
-        shape=neurons.size_in, name="%s.adaptation" % neurons
-    )
-    model.add_op(
-        SimNeurons(
-            neurons=alifrate,
-            J=model.sig[neurons]["in"],
-            output=model.sig[neurons]["out"],
-            states=[model.sig[neurons]["adaptation"]],
-        )
-    )
-
-
-@Builder.register(AdaptiveLIF)
-def build_alif(model, alif, neurons):
-    """Builds an `.AdaptiveLIF` object into a model.
-
-    In addition to adding a `.SimNeurons` operator, this build function sets up
-    signals to track the voltage, refractory time, and adaptation term
-    for each neuron.
-
-    Parameters
-    ----------
-    model : Model
-        The model to build into.
-    alif : AdaptiveLIF
-        Neuron type to build.
-    neuron : Neurons
-        The neuron population object corresponding to the neuron type.
-
-    Notes
-    -----
-    Does not modify ``model.params[]`` and can therefore be called
-    more than once with the same `.AdaptiveLIF` instance.
-    """
-
-    model.sig[neurons]["voltage"] = Signal(
-        shape=neurons.size_in, name="%s.voltage" % neurons
-    )
-    model.sig[neurons]["refractory_time"] = Signal(
-        shape=neurons.size_in, name="%s.refractory_time" % neurons
-    )
-    model.sig[neurons]["adaptation"] = Signal(
-        shape=neurons.size_in, name="%s.adaptation" % neurons
-    )
-    model.add_op(
-        SimNeurons(
-            neurons=alif,
-            J=model.sig[neurons]["in"],
-            output=model.sig[neurons]["out"],
-            states=[
-                model.sig[neurons]["voltage"],
-                model.sig[neurons]["refractory_time"],
-                model.sig[neurons]["adaptation"],
-            ],
-        )
-    )
-
-
-@Builder.register(Izhikevich)
-def build_izhikevich(model, izhikevich, neurons):
-    """Builds an `.Izhikevich` object into a model.
-
-    In addition to adding a `.SimNeurons` operator, this build function sets up
-    signals to track the voltage and recovery terms for each neuron.
-
-    Parameters
-    ----------
-    model : Model
-        The model to build into.
-    izhikevich : Izhikevich
-        Neuron type to build.
-    neuron : Neurons
-        The neuron population object corresponding to the neuron type.
-
-    Notes
-    -----
-    Does not modify ``model.params[]`` and can therefore be called
-    more than once with the same `.Izhikevich` instance.
-    """
-
-    model.sig[neurons]["voltage"] = Signal(
-        np.ones(neurons.size_in, dtype=rc.float_dtype) * izhikevich.reset_voltage,
-        name="%s.voltage" % neurons,
-    )
-    model.sig[neurons]["recovery"] = Signal(
-        np.ones(neurons.size_in, dtype=rc.float_dtype)
-        * izhikevich.reset_voltage
-        * izhikevich.coupling,
-        name="%s.recovery" % neurons,
-    )
-    model.add_op(
-        SimNeurons(
-            neurons=izhikevich,
-            J=model.sig[neurons]["in"],
-            output=model.sig[neurons]["out"],
-            states=[model.sig[neurons]["voltage"], model.sig[neurons]["recovery"]],
-        )
-    )
+    # apply the RatesToSpikes conversion to output of base neuron type
+    build_neurons(model, neurontype, neurons, input_sig=rate_sig, output_sig=out_sig)

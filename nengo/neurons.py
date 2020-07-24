@@ -2,11 +2,14 @@ import warnings
 
 import numpy as np
 
+from nengo.dists import Choice, Distribution, get_samples, Uniform
 from nengo.exceptions import SimulationError, ValidationError
-from nengo.params import Parameter, NumberParam, FrozenObject
+from nengo.params import DictParam, FrozenObject, NumberParam, Parameter
+from nengo.rc import rc
+from nengo.utils.numpy import is_array_like
 
 
-def settled_firingrate(step_math, J, states, dt=0.001, settle_time=0.1, sim_time=1.0):
+def settled_firingrate(step, J, state, dt=0.001, settle_time=0.1, sim_time=1.0):
     """Compute firing rates (in Hz) for given vector input, ``x``.
 
     Unlike the default naive implementation, this approach takes into
@@ -17,24 +20,24 @@ def settled_firingrate(step_math, J, states, dt=0.001, settle_time=0.1, sim_time
 
     Parameters
     ----------
-    step_math : function
+    step : function
         the step function of the neuron type
     J : ndarray
         a vector of currents to generate firing rates from
-    *states : list of ndarrays
+    state : dict of ndarrays
         additional state needed by the step function
     """
-    out = np.zeros_like(J)
     total = np.zeros_like(J)
+    out = state["output"]
 
     # Simulate for the settle time
     steps = int(settle_time / dt)
     for _ in range(steps):
-        step_math(dt, J, out, *states)
+        step(dt, J, **state)
     # Simulate for sim time, and keep track
     steps = int(sim_time / dt)
     for _ in range(steps):
-        step_math(dt, J, out, *states)
+        step(dt, J, **state)
         total += out
     return total / float(steps)
 
@@ -42,13 +45,52 @@ def settled_firingrate(step_math, J, states, dt=0.001, settle_time=0.1, sim_time
 class NeuronType(FrozenObject):
     """Base class for Nengo neuron models.
 
+    Parameters
+    ----------
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
+
     Attributes
     ----------
-    probeable : tuple
-        Signals that can be probed in the neuron population.
+    state : {str: Distribution}
+        State variables held by the neuron type during simulation.
+        Values in the dict indicate their initial values, or how
+        to obtain those initial values. These elements can also be
+        probed in the neuron population.
+    negative : bool
+        Whether the neurons can emit negative outputs (i.e. negative spikes or rates).
     """
 
-    probeable = ()
+    state = {}
+    negative = True
+    spiking = False
+
+    initial_state = DictParam("initial_state", optional=True)
+
+    def __init__(self, initial_state=None):
+        super().__init__()
+        self.initial_state = initial_state
+        if self.initial_state is not None:
+            for name, value in self.initial_state.items():
+                if name not in self.state:
+                    raise ValidationError(
+                        "State variable %r not recognized; should be one of %s"
+                        % (name, ", ".join(repr(k) for k in self.state)),
+                        attr="initial_state",
+                        obj=self,
+                    )
+                if not (isinstance(value, Distribution) or is_array_like(value)):
+                    raise ValidationError(
+                        "State variable %r must be a distribution or array-like"
+                        % (name,),
+                        attr="initial_state",
+                        obj=self,
+                    )
+
+    @property
+    def probeable(self):
+        return ("output",) + tuple(self.state)
 
     def current(self, x, gain, bias):
         """Compute current injected in each neuron given input, gain and bias.
@@ -154,6 +196,17 @@ class NeuronType(FrozenObject):
         bias[:] = J_tops - gain
         return gain, bias
 
+    def make_state(self, n_neurons, rng=np.random, dtype=None):
+        dtype = rc.float_dtype if dtype is None else dtype
+        state = {}
+        initial_state = {} if self.initial_state is None else self.initial_state
+        for name in self.state:
+            dist = initial_state.get(name, self.state[name])
+            state[name] = get_samples(dist, n=n_neurons, d=None, rng=rng).astype(
+                dtype, copy=False
+            )
+        return state
+
     def max_rates_intercepts(self, gain, bias):
         """Compute the max_rates and intercepts given gain and bias.
 
@@ -212,10 +265,10 @@ class NeuronType(FrozenObject):
         """
         J = self.current(x, gain, bias)
         out = np.zeros_like(J)
-        self.step_math(dt=1.0, J=J, output=out)
+        self.step(dt=1.0, J=J, output=out)
         return out
 
-    def step_math(self, dt, J, output):
+    def step(self, dt, J, output, **state):
         """Implements the differential equation for this neuron type.
 
         At a minimum, NeuronType subclasses must implement this method.
@@ -229,9 +282,27 @@ class NeuronType(FrozenObject):
         J : (n_neurons,) array_like
             Input currents associated with each neuron.
         output : (n_neurons,) array_like
-            Output activities associated with each neuron.
+            Output activity associated with each neuron (e.g., spikes or firing rates).
+        state : {str: array_like}
+            State variables associated with the population.
         """
-        raise NotImplementedError("Neurons must provide step_math")
+        raise NotImplementedError("Neurons must provide step")
+
+    def step_math(self, dt, J, **state):
+        warnings.warn(
+            "'step_math' has been renamed to 'step'. This alias will be removed "
+            "in Nengo 4.0"
+        )
+        return self.step(dt, J, **state)
+
+
+class NeuronTypeParam(Parameter):
+
+    equatable = True
+
+    def coerce(self, instance, neurons):
+        self.check_type(instance, neurons, NeuronType)
+        return super().coerce(instance, neurons)
 
 
 class Direct(NeuronType):
@@ -255,18 +326,13 @@ class Direct(NeuronType):
         """Always returns ``x``."""
         return np.array(x, dtype=float, copy=False, ndmin=1)
 
-    def step_math(self, dt, J, output):
+    def step(self, dt, J, output):
         """Raises an error if called.
 
         Rather than calling this function, the simulator will detect that
         the ensemble is in direct mode, and bypass the neural approximation.
         """
         raise SimulationError("Direct mode neurons shouldn't be simulated.")
-
-
-# TODO: class BasisFunctions or Population or Express;
-#       uses non-neural basis functions to emulate neuron saturation,
-#       but still simulate very fast
 
 
 class RectifiedLinear(NeuronType):
@@ -281,14 +347,17 @@ class RectifiedLinear(NeuronType):
     amplitude : float
         Scaling factor on the neuron output. Corresponds to the relative
         amplitude of the output of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
     """
 
-    probeable = ("rates",)
+    negative = False
 
     amplitude = NumberParam("amplitude", low=0, low_open=True)
 
-    def __init__(self, amplitude=1):
-        super().__init__()
+    def __init__(self, amplitude=1, initial_state=None):
+        super().__init__(initial_state)
 
         self.amplitude = amplitude
 
@@ -306,7 +375,7 @@ class RectifiedLinear(NeuronType):
         max_rates = gain * (1 - intercepts)
         return max_rates, intercepts
 
-    def step_math(self, dt, J, output):
+    def step(self, dt, J, output):
         """Implement the rectification nonlinearity."""
         output[...] = self.amplitude * np.maximum(0.0, J)
 
@@ -324,49 +393,71 @@ class SpikingRectifiedLinear(RectifiedLinear):
     amplitude : float
         Scaling factor on the neuron output. Corresponds to the relative
         amplitude of the output spikes of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
     """
 
-    probeable = ("spikes", "voltage")
+    state = {"voltage": Uniform(low=0, high=1)}
+    spiking = True
 
     def rates(self, x, gain, bias):
         """Use RectifiedLinear to determine rates."""
 
         J = self.current(x, gain, bias)
         out = np.zeros_like(J)
-        RectifiedLinear.step_math(self, dt=1.0, J=J, output=out)
+        RectifiedLinear.step(self, dt=1.0, J=J, output=out)
         return out
 
-    def step_math(self, dt, J, spiked, voltage):
+    def step(self, dt, J, output, voltage):
         """Implement the integrate and fire nonlinearity."""
 
         voltage += np.maximum(J, 0) * dt
         n_spikes = np.floor(voltage)
-        spiked[:] = self.amplitude * n_spikes / dt
+        output[:] = (self.amplitude / dt) * n_spikes
         voltage -= n_spikes
 
 
 class Sigmoid(NeuronType):
-    """A neuron model whose response curve is a sigmoid.
+    """A non-spiking neuron model whose response curve is a sigmoid.
 
     Since the tuning curves are strictly positive, the ``intercepts``
     correspond to the inflection point of each sigmoid. That is,
     ``f(intercept) = 0.5`` where ``f`` is the pure sigmoid function.
+
+    Parameters
+    ----------
+    tau_ref : float
+        The neuron refractory period, in seconds. The maximum firing rate of the
+        neurons is ``1 / tau_ref``. Must be positive (i.e. ``tau_ref > 0``).
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
     """
 
-    probeable = ("rates",)
+    negative = False
 
-    tau_ref = NumberParam("tau_ref", low=0)
+    tau_ref = NumberParam("tau_ref", low=0, low_open=True)
 
-    def __init__(self, tau_ref=0.0025):
-        super().__init__()
+    def __init__(self, tau_ref=0.0025, initial_state=None):
+        super().__init__(initial_state)
         self.tau_ref = tau_ref
 
     def gain_bias(self, max_rates, intercepts):
         """Analytically determine gain, bias."""
         max_rates = np.array(max_rates, dtype=float, copy=False, ndmin=1)
         intercepts = np.array(intercepts, dtype=float, copy=False, ndmin=1)
-        lim = 1.0 / self.tau_ref
-        inverse = -np.log(lim / max_rates - 1.0)
+
+        inv_tau_ref = 1.0 / self.tau_ref
+        if not np.all(max_rates < inv_tau_ref):
+            raise ValidationError(
+                "Max rates must be below the inverse refractory period (%0.3f)"
+                % (inv_tau_ref,),
+                attr="max_rates",
+                obj=self,
+            )
+
+        inverse = -np.log(inv_tau_ref / max_rates - 1.0)
         gain = inverse / (1.0 - intercepts)
         bias = inverse - gain
         return gain, bias
@@ -375,13 +466,61 @@ class Sigmoid(NeuronType):
         """Compute the inverse of gain_bias."""
         inverse = gain + bias
         intercepts = 1 - inverse / gain
-        lim = 1.0 / self.tau_ref
-        max_rates = lim / (1 + np.exp(-inverse))
+        max_rates = (1.0 / self.tau_ref) / (1 + np.exp(-inverse))
         return max_rates, intercepts
 
-    def step_math(self, dt, J, output):
+    def step(self, dt, J, output):
         """Implement the sigmoid nonlinearity."""
-        output[...] = (1.0 / self.tau_ref) / (1.0 + np.exp(-J))
+        output[...] = (1.0 / self.tau_ref) / (1 + np.exp(-J))
+
+
+class Tanh(NeuronType):
+    """A non-spiking neuron model whose response curve is a hyperbolic tangent.
+
+    Parameters
+    ----------
+    tau_ref : float
+        The neuron refractory period, in seconds. The maximum firing rate of the
+        neurons is ``1 / tau_ref``. Must be positive (i.e. ``tau_ref > 0``).
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
+    """
+
+    tau_ref = NumberParam("tau_ref", low=0, low_open=True)
+
+    def __init__(self, tau_ref=0.0025, initial_state=None):
+        super().__init__(initial_state)
+        self.tau_ref = tau_ref
+
+    def gain_bias(self, max_rates, intercepts):
+        """Analytically determine gain, bias."""
+        max_rates = np.array(max_rates, dtype=float, copy=False, ndmin=1)
+        intercepts = np.array(intercepts, dtype=float, copy=False, ndmin=1)
+
+        inv_tau_ref = 1.0 / self.tau_ref
+        if not np.all(max_rates < inv_tau_ref):
+            raise ValidationError(
+                "Max rates must be below the inverse refractory period (%0.3f)"
+                % inv_tau_ref,
+                attr="max_rates",
+                obj=self,
+            )
+
+        inverse = np.arctanh(max_rates * self.tau_ref)
+        gain = inverse / (1.0 - intercepts)
+        bias = -gain * intercepts
+        return gain, bias
+
+    def max_rates_intercepts(self, gain, bias):
+        """Compute the inverse of gain_bias."""
+        intercepts = -bias / gain
+        max_rates = (1.0 / self.tau_ref) * np.tanh(gain + bias)
+        return max_rates, intercepts
+
+    def step(self, dt, J, output):
+        """Implement the tanh nonlinearity."""
+        output[...] = (1.0 / self.tau_ref) * np.tanh(J)
 
 
 class Sinusoid(NeuronType):
@@ -485,16 +624,19 @@ class LIFRate(NeuronType):
     amplitude : float
         Scaling factor on the neuron output. Corresponds to the relative
         amplitude of the output spikes of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
     """
 
-    probeable = ("rates",)
+    negative = False
 
     tau_rc = NumberParam("tau_rc", low=0, low_open=True)
     tau_ref = NumberParam("tau_ref", low=0)
     amplitude = NumberParam("amplitude", low=0, low_open=True)
 
-    def __init__(self, tau_rc=0.02, tau_ref=0.002, amplitude=1):
-        super().__init__()
+    def __init__(self, tau_rc=0.02, tau_ref=0.002, amplitude=1, initial_state=None):
+        super().__init__(initial_state)
         self.tau_rc = tau_rc
         self.tau_ref = tau_ref
         self.amplitude = amplitude
@@ -505,7 +647,7 @@ class LIFRate(NeuronType):
         intercepts = np.array(intercepts, dtype=float, copy=False, ndmin=1)
 
         inv_tau_ref = 1.0 / self.tau_ref if self.tau_ref > 0 else np.inf
-        if np.any(max_rates > inv_tau_ref):
+        if not np.all(max_rates < inv_tau_ref):
             raise ValidationError(
                 "Max rates must be below the inverse "
                 "refractory period (%0.3f)" % inv_tau_ref,
@@ -535,11 +677,11 @@ class LIFRate(NeuronType):
         """Always use LIFRate to determine rates."""
         J = self.current(x, gain, bias)
         out = np.zeros_like(J)
-        # Use LIFRate's step_math explicitly to ensure rate approximation
-        LIFRate.step_math(self, dt=1, J=J, output=out)
+        # Use LIFRate's step explicitly to ensure rate approximation
+        LIFRate.step(self, dt=1, J=J, output=out)
         return out
 
-    def step_math(self, dt, J, output):
+    def step(self, dt, J, output):
         """Implement the LIFRate nonlinearity."""
         j = J - 1
         output[:] = 0  # faster than output[j <= 0] = 0
@@ -567,17 +709,31 @@ class LIF(LIFRate):
     amplitude : float
         Scaling factor on the neuron output. Corresponds to the relative
         amplitude of the output spikes of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
     """
 
-    probeable = ("spikes", "voltage", "refractory_time")
+    state = {
+        "voltage": Uniform(low=0, high=1),
+        "refractory_time": Choice([0]),
+    }
+    spiking = True
 
     min_voltage = NumberParam("min_voltage", high=0)
 
-    def __init__(self, tau_rc=0.02, tau_ref=0.002, min_voltage=0, amplitude=1):
-        super().__init__(tau_rc=tau_rc, tau_ref=tau_ref, amplitude=amplitude)
+    def __init__(
+        self, tau_rc=0.02, tau_ref=0.002, min_voltage=0, amplitude=1, initial_state=None
+    ):
+        super().__init__(
+            tau_rc=tau_rc,
+            tau_ref=tau_ref,
+            amplitude=amplitude,
+            initial_state=initial_state,
+        )
         self.min_voltage = min_voltage
 
-    def step_math(self, dt, J, spiked, voltage, refractory_time):
+    def step(self, dt, J, output, voltage, refractory_time):
         # reduce all refractory times by dt
         refractory_time -= dt
 
@@ -594,7 +750,7 @@ class LIF(LIFRate):
 
         # determine which neurons spiked (set them to 1/dt, else 0)
         spiked_mask = voltage > 1
-        spiked[:] = spiked_mask * (self.amplitude / dt)
+        output[:] = spiked_mask * (self.amplitude / dt)
 
         # set v(0) = 1 and solve for t to compute the spike time
         t_spike = dt + self.tau_rc * np.log1p(
@@ -635,6 +791,9 @@ class AdaptiveLIFRate(LIFRate):
     amplitude : float
         Scaling factor on the neuron output. Corresponds to the relative
         amplitude of the output spikes of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
 
     References
     ----------
@@ -643,20 +802,33 @@ class AdaptiveLIFRate(LIFRate):
        16.10 (2004): 2101-2124.
     """
 
-    probeable = ("rates", "adaptation")
+    state = {"adaptation": Choice([0])}
 
     tau_n = NumberParam("tau_n", low=0, low_open=True)
     inc_n = NumberParam("inc_n", low=0)
 
-    def __init__(self, tau_n=1, inc_n=0.01, tau_rc=0.02, tau_ref=0.002, amplitude=1):
-        super().__init__(tau_rc=tau_rc, tau_ref=tau_ref, amplitude=amplitude)
+    def __init__(
+        self,
+        tau_n=1,
+        inc_n=0.01,
+        tau_rc=0.02,
+        tau_ref=0.002,
+        amplitude=1,
+        initial_state=None,
+    ):
+        super().__init__(
+            tau_rc=tau_rc,
+            tau_ref=tau_ref,
+            amplitude=amplitude,
+            initial_state=initial_state,
+        )
         self.tau_n = tau_n
         self.inc_n = inc_n
 
-    def step_math(self, dt, J, output, adaptation):
+    def step(self, dt, J, output, adaptation):
         """Implement the AdaptiveLIFRate nonlinearity."""
         n = adaptation
-        super().step_math(dt, J - n, output)
+        super().step(dt, J - n, output)
         n += (dt / self.tau_n) * (self.inc_n * output - n)
 
 
@@ -690,6 +862,9 @@ class AdaptiveLIF(LIF):
     amplitude : float
         Scaling factor on the neuron output. Corresponds to the relative
         amplitude of the output spikes of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
 
     References
     ----------
@@ -698,7 +873,12 @@ class AdaptiveLIF(LIF):
        16.10 (2004): 2101-2124.
     """
 
-    probeable = ("spikes", "adaptation", "voltage", "refractory_time")
+    state = {
+        "voltage": Uniform(low=0, high=1),
+        "refractory_time": Choice([0]),
+        "adaptation": Choice([0]),
+    }
+    spiking = True
 
     tau_n = NumberParam("tau_n", low=0, low_open=True)
     inc_n = NumberParam("inc_n", low=0)
@@ -711,17 +891,22 @@ class AdaptiveLIF(LIF):
         tau_ref=0.002,
         min_voltage=0,
         amplitude=1,
+        initial_state=None,
     ):
         super().__init__(
-            tau_rc=tau_rc, tau_ref=tau_ref, min_voltage=min_voltage, amplitude=amplitude
+            tau_rc=tau_rc,
+            tau_ref=tau_ref,
+            min_voltage=min_voltage,
+            amplitude=amplitude,
+            initial_state=initial_state,
         )
         self.tau_n = tau_n
         self.inc_n = inc_n
 
-    def step_math(self, dt, J, output, voltage, ref, adaptation):
+    def step(self, dt, J, output, voltage, refractory_time, adaptation):
         """Implement the AdaptiveLIF nonlinearity."""
         n = adaptation
-        super().step_math(dt, J - n, output, voltage, ref)
+        super().step(dt, J - n, output, voltage, refractory_time)
         n += (dt / self.tau_n) * (self.inc_n * output - n)
 
 
@@ -757,6 +942,9 @@ class Izhikevich(NeuronType):
         (Originally 'c') The voltage to reset to after a spike, in millivolts.
     reset_recovery : float, optional
         (Originally 'd') The recovery value to reset to after a spike.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
 
     References
     ----------
@@ -765,7 +953,12 @@ class Izhikevich(NeuronType):
        (http://www.izhikevich.org/publications/spikes.pdf)
     """
 
-    probeable = ("spikes", "voltage", "recovery")
+    state = {
+        "voltage": Uniform(low=0, high=1),
+        "recovery": Choice([0]),
+    }
+    negative = False
+    spiking = True
 
     tau_recovery = NumberParam("tau_recovery", low=0, low_open=True)
     coupling = NumberParam("coupling", low=0)
@@ -773,9 +966,14 @@ class Izhikevich(NeuronType):
     reset_recovery = NumberParam("reset_recovery")
 
     def __init__(
-        self, tau_recovery=0.02, coupling=0.2, reset_voltage=-65.0, reset_recovery=8.0
+        self,
+        tau_recovery=0.02,
+        coupling=0.2,
+        reset_voltage=-65.0,
+        reset_recovery=8.0,
+        initial_state=None,
     ):
-        super().__init__()
+        super().__init__(initial_state)
         self.tau_recovery = tau_recovery
         self.coupling = coupling
         self.reset_voltage = reset_voltage
@@ -784,13 +982,19 @@ class Izhikevich(NeuronType):
     def rates(self, x, gain, bias):
         """Estimates steady-state firing rate given gain and bias."""
         J = self.current(x, gain, bias)
-        voltage = np.zeros_like(J)
-        recovery = np.zeros_like(J)
         return settled_firingrate(
-            self.step_math, J, [voltage, recovery], settle_time=0.001, sim_time=1.0
+            self.step,
+            J,
+            state={
+                "output": np.zeros_like(J),
+                "voltage": np.zeros_like(J),
+                "recovery": np.zeros_like(J),
+            },
+            settle_time=0.001,
+            sim_time=1.0,
         )
 
-    def step_math(self, dt, J, spiked, voltage, recovery):
+    def step(self, dt, J, output, voltage, recovery):
         """Implement the Izhikevich nonlinearity."""
         # Numerical instability occurs for very low inputs.
         # We'll clip them be greater than some value that was chosen by
@@ -806,15 +1010,161 @@ class Izhikevich(NeuronType):
         # However, calculating recovery for voltage values greater than
         # threshold can cause the system to blow up, which we want
         # to avoid at all costs.
-        spiked[:] = (voltage >= 30) / dt
-        voltage[spiked > 0] = self.reset_voltage
+        output[:] = (voltage >= 30) / dt
+        voltage[output > 0] = self.reset_voltage
 
         dU = (self.tau_recovery * (self.coupling * voltage - recovery)) * 1000
         recovery[:] += dU * dt
-        recovery[spiked > 0] = recovery[spiked > 0] + self.reset_recovery
+        recovery[output > 0] = recovery[output > 0] + self.reset_recovery
 
 
-class NeuronTypeParam(Parameter):
-    def coerce(self, instance, neurons):
-        self.check_type(instance, neurons, NeuronType)
-        return super().coerce(instance, neurons)
+class RatesToSpikesNeuronType(NeuronType):
+    """Base class for neuron types that turn rate types into spiking ones."""
+
+    base_type = NeuronTypeParam("base_type")
+    amplitude = NumberParam("amplitude", low=0, low_open=True)
+    spiking = True
+
+    def __init__(self, base_type, amplitude=1.0, initial_state=None):
+        super().__init__(initial_state)
+
+        self.base_type = base_type
+        self.amplitude = amplitude
+        self.negative = base_type.negative
+
+        if base_type.spiking:
+            warnings.warn(
+                "'base_type' is type %r, which is a spiking neuron type. We recommend "
+                "using the non-spiking equivalent type, if one exists."
+                % (type(base_type).__name__)
+            )
+
+        for s in self.state:
+            if s in self.base_type.state:
+                raise ValidationError(
+                    "%s and %s have overlapping state variable (%s)"
+                    % (self, self.base_type, s),
+                    attr="state",
+                    obj=self,
+                )
+
+    def gain_bias(self, max_rates, intercepts):
+        return self.base_type.gain_bias(max_rates, intercepts)
+
+    def max_rates_intercepts(self, gain, bias):
+        return self.base_type.max_rates_intercepts(gain, bias)
+
+    def rates(self, x, gain, bias):
+        return self.base_type.rates(x, gain, bias)
+
+    @property
+    def probeable(self):
+        return ("output", "rate_out") + tuple(self.state) + tuple(self.base_type.state)
+
+
+class RegularSpiking(RatesToSpikesNeuronType):
+    """Turn a rate neuron type into a spiking one with regular inter-spike intervals.
+
+    Spikes at regular intervals based on the rates of the base neuron type. [1]_
+
+    Parameters
+    ----------
+    base_type : NeuronType
+        A rate-based neuron type to convert to a regularly spiking neuron.
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output spikes of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
+
+    References
+    ----------
+    .. [1] Voelker, A. R., Rasmussen, D., & Eliasmith, C. (2020). A Spike in
+       Performance: Training Hybrid-Spiking Neural Networks with Quantized Activation
+       Functions. arXiv preprint arXiv:2002.03553. (https://arxiv.org/abs/2002.03553)
+    """
+
+    state = {"voltage": Uniform(low=0, high=1)}
+
+    def step(self, dt, J, output, voltage):
+        # Note: J is the desired output rate, not the input current
+        voltage += dt * J
+        n_spikes = np.floor(voltage)
+        output[...] = (self.amplitude / dt) * n_spikes
+        voltage -= n_spikes
+
+
+class StochasticSpiking(RatesToSpikesNeuronType):
+    """Turn a rate neuron type into a spiking one using stochastic rounding.
+
+    The expected number of spikes per timestep ``e = dt * r`` is determined by the
+    base type firing rate ``r`` and the timestep ``dt``. Given the fractional part ``f``
+    and integer part ``q`` of ``e``, the number of generated spikes is ``q`` with
+    probability ``1 - f`` and ``q + 1`` with probability ``f``. For ``e`` much less than
+    one, this is very similar to Poisson statistics.
+
+    Parameters
+    ----------
+    base_type : NeuronType
+        A rate-based neuron type to convert to a Poisson spiking neuron.
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output spikes of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
+    """
+
+    def make_state(self, n_neurons, rng=np.random, dtype=None):
+        state = super().make_state(n_neurons, rng=rng, dtype=dtype)
+        state["rng"] = rng
+        return state
+
+    def step(self, dt, J, output, rng, **base_state):
+        # Note: J is the desired output rate, not the input current
+        if self.negative:
+            frac, n_spikes = np.modf(dt * np.abs(J))
+        else:
+            frac, n_spikes = np.modf(dt * J)
+
+        n_spikes += rng.random_sample(size=frac.shape) < frac
+
+        if self.negative:
+            output[...] = (self.amplitude / dt) * n_spikes * np.sign(J)
+        else:
+            output[...] = (self.amplitude / dt) * n_spikes
+
+
+class PoissonSpiking(RatesToSpikesNeuronType):
+    """Turn a rate neuron type into a spiking one with Poisson spiking statistics.
+
+    Spikes with Poisson probability based on the rates of the base neuron type.
+
+    Parameters
+    ----------
+    base_type : NeuronType
+        A rate-based neuron type to convert to a Poisson spiking neuron.
+    amplitude : float
+        Scaling factor on the neuron output. Corresponds to the relative
+        amplitude of the output spikes of the neuron.
+    initial_state : {str: Distribution or array_like}
+        Mapping from state variables names to their desired initial value.
+        These values will override the defaults set in the class's state attribute.
+    """
+
+    def make_state(self, n_neurons, rng=np.random, dtype=None):
+        state = super().make_state(n_neurons, rng=rng, dtype=dtype)
+        state["rng"] = rng
+        return state
+
+    def step(self, dt, J, output, rng, **base_state):
+        # Note: J is the desired output rate, not the input current
+        if self.negative:
+            output[...] = (
+                (self.amplitude / dt)
+                * rng.poisson(np.abs(J) * dt, output.size)
+                * np.sign(J)
+            )
+        else:
+            output[...] = (self.amplitude / dt) * rng.poisson(J * dt, output.size)

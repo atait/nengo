@@ -373,7 +373,7 @@ class LinearFilter(Synapse):
             return X[0]
 
         def __call__(self, t, signal):
-            return OneXnumba.jit_compiled_mult(self.a, self.b, self.X, signal)
+            return type(self).jit_compiled_mult(self.a, self.b, self.X, signal)
 
         @classmethod
         def check(cls, A, B, C, D, X):

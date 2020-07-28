@@ -33,10 +33,13 @@ maxseed = np.iinfo(np.uint32).max
 maxint = np.iinfo(np.int32).max
 
 
-# numpy 1.17 introduced a slowdown to clip
+# numpy 1.17 introduced a slowdown to clip, so
+# use nengo.utils.numpy.clip instead of np.clip
 npversion = [int(st) for st in np.__version__.split('.')]
-if 17 <= npversion[1] and npversion[1] <= 18:
-    np.clip = np.core.umath.clip
+if npversion[1] == 17:
+    clip = np.core.umath.clip
+else:
+    clip = np.clip
 
 
 def is_integer(obj):

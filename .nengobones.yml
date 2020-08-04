@@ -66,6 +66,8 @@ setup_cfg:
     omit_files:
       - "nengo/_vendor/*"
       - "nengo/spa/*"
+      # omit filter_design.py until it gets moved to nengo/_vendor
+      - "nengo/utils/filter_design.py"
   flake8:
     exclude:
       - compat.py
@@ -286,7 +288,8 @@ ci_scripts:
       - matplotlib
   - template: deploy
 
-codecov_yml: {}
+codecov_yml:
+  abs_target: 100%
 
 pre_commit_config_yaml:
   exclude:

@@ -368,7 +368,7 @@ class LinearFilter(Synapse):
 
         @classmethod
         def check(cls, A, B, C, D, X):
-            return super().check(A, B, C, D, X) and (X.shape == (1,1))
+            return super().check(A, B, C, D, X) and (X.shape == (1, 1))
 
     class NoD(Step):
         """Step for systems with no passthrough matrix (D).

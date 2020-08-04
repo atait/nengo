@@ -3,7 +3,6 @@
 import collections
 
 import numpy as np
-import nengo.utils.numpy as npext
 from nengo.exceptions import MovedError, Unconvertible, ValidationError
 
 
@@ -108,7 +107,8 @@ def default_n_eval_points(n_neurons, dimensions):
         For a connection, this would be the number of dimensions in the
         ``pre`` ensemble.
     """
-    return max(npext.clip(500 * dimensions, 750, 2500), 2 * n_neurons)
+    from nengo.utils.numpy import clip  # noqa: E402
+    return max(clip(500 * dimensions, 750, 2500), 2 * n_neurons)
 
 
 def objs_and_connections(network):

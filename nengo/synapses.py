@@ -13,6 +13,7 @@ from nengo.params import (
 from nengo.rc import rc
 from nengo.utils.filter_design import cont2discrete, tf2ss
 from nengo.utils.numpy import as_shape, is_number
+from numba import njit
 
 
 class Synapse(Process):
@@ -288,6 +289,8 @@ class LinearFilter(Synapse):
             return LinearFilter.NoX(A, B, C, D, X)
         if LinearFilter.OneXOneDim.check(A, B, C, D, X):
             return LinearFilter.OneXOneDim(A, B, C, D, X)
+        if LinearFilter.OneXnumba.check(A, B, C, D, X):
+            return LinearFilter.OneXnumba(A, B, C, D, X)
         elif LinearFilter.OneX.check(A, B, C, D, X):
             return LinearFilter.OneX(A, B, C, D, X)
         elif LinearFilter.NoD.check(A, B, C, D, X):
@@ -357,6 +360,24 @@ class LinearFilter(Synapse):
         @classmethod
         def check(cls, A, B, C, D, X):
             return super().check(A, B, C, D, X) and (len(A) == 1 and (D == 0).all())
+
+    class OneXnumba(OneX):
+        """Step for systems with one state element and no passthrough (D).
+            Faster and applicable to almost every case except when dtype is 16-bit
+        """
+        @staticmethod
+        @njit(cache=True)
+        def jit_compiled_mult(a, b, X, s):
+            X *= a
+            X += b * s
+            return X[0]
+
+        def __call__(self, t, signal):
+            return type(self).jit_compiled_mult(self.a, self.b, self.X, signal)
+
+        @classmethod
+        def check(cls, A, B, C, D, X):
+            return super().check(A, B, C, D, X) and (np.all([mat.dtype != np.float16 for mat in [A, B, C, D, X]]))
 
     class OneXOneDim(OneX):
         """ Step for systems with one state element, no passthrough, and a size-1 input.

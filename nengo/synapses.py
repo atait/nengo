@@ -360,15 +360,11 @@ class LinearFilter(Synapse):
 
     class OneXOneDim(OneX):
         """ Step for systems with one state element, no passthrough, and a size-1 input.
-            Using the elemental float datatypes improves performance for most synapses
+            Using the builtin float math improves performance for 1D ensembles
         """
-        def __init__(self, A, B, C, D, X):
-            super().__init__(A, B, C, D, X)
-            self.X = self.X.item()  # make scalar
-
         def __call__(self, t, signal):
-            self.X = self.a * self.X + self.b * signal.item()
-            return self.X
+            self.X[:] = self.a * self.X.item() + self.b * signal.item()
+            return self.X[0]
 
         @classmethod
         def check(cls, A, B, C, D, X):

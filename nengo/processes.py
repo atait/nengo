@@ -454,7 +454,7 @@ class Piecewise(Process):
         if self.interpolation == "zero":
 
             def step_piecewise(t):
-                ti = (np.searchsorted(tp, t + 0.5 * dt) - 1).clip(-1, len(yp) - 1)
+                ti = np.clip(np.searchsorted(tp, t + 0.5 * dt) - 1, -1, len(yp) - 1)
                 if ti == -1:
                     return np.zeros(shape_out)
                 return np.ravel(yp[ti](t)) if callable(yp[ti]) else yp[ti]

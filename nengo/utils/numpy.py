@@ -36,7 +36,7 @@ maxint = np.iinfo(np.int32).max
 # numpy 1.17 introduced a slowdown to clip, so
 # use nengo.utils.numpy.clip instead of np.clip
 # This has persisted through 1.19 at least
-npversion = [int(st) for st in np.__version__.split('.')]
+npversion = [int(st) for st in np.__version__.split(".")]
 if npversion[1] >= 17 and npversion[1] <= 19:
     clip = np.core.umath.clip
 else:

@@ -362,6 +362,7 @@ class LinearFilter(Synapse):
         """ Step for systems with one state element, no passthrough, and a size-1 input.
             Using the builtin float math improves performance for 1D ensembles
         """
+
         def __call__(self, t, signal):
             self.X[:] = self.a * self.X.item() + self.b * signal.item()
             return self.X[0]

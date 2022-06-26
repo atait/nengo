@@ -4,6 +4,7 @@ import pytest
 
 import nengo
 from nengo.builder import Model
+from nengo.builder.builder import Builder
 from nengo.builder.ensemble import BuiltEnsemble
 
 
@@ -121,6 +122,7 @@ def test_seed_override(seed, allclose):
 
 
 def test_build_twice():
+    """Tests warning for building an object twice"""
     model = nengo.builder.Model()
     ens = nengo.Ensemble(10, 1, add_to_container=False)
     model.seeds[ens] = 0
@@ -130,3 +132,15 @@ def test_build_twice():
     with pytest.warns(UserWarning, match="has already been built"):
         assert model.build(ens) is None
     assert model.params[ens] is built_ens
+
+
+def test_register_builder_twice_warning():
+    """Tests warning for registering a builder twice"""
+
+    class Test:
+        pass
+
+    my_builder = Builder.register(Test)
+    my_builder(1)
+    with pytest.warns(Warning, match="Type .* already has a builder. Overwriting"):
+        my_builder(1)  # repeat setup warning

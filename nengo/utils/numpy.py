@@ -1,7 +1,7 @@
 """
 Extra functions to extend the capabilities of Numpy.
 """
-import collections
+from collections.abc import Iterable
 import logging
 
 import warnings
@@ -33,6 +33,16 @@ maxseed = np.iinfo(np.uint32).max
 maxint = np.iinfo(np.int32).max
 
 
+# numpy 1.17 introduced a slowdown to clip, so
+# use nengo.utils.numpy.clip instead of np.clip
+# This has persisted through 1.19 at least
+clip = (
+    np.core.umath.clip
+    if tuple(int(st) for st in np.__version__.split(".")) >= (1, 17, 0)
+    else np.clip
+)
+
+
 def is_integer(obj):
     """Check if ``obj`` is an integer type."""
     return isinstance(obj, (int, np.integer))
@@ -43,7 +53,7 @@ def is_iterable(obj):
     if isinstance(obj, np.ndarray):
         return obj.ndim > 0  # 0-d arrays give error if iterated over
     else:
-        return isinstance(obj, collections.abc.Iterable)
+        return isinstance(obj, Iterable)
 
 
 def is_number(obj, check_complex=False):
@@ -97,7 +107,27 @@ def broadcast_shape(shape, length):
 
 
 def array(x, dims=None, min_dims=0, readonly=False, **kwargs):
-    """Create numpy array with some extra validation."""
+    """Create numpy array with some extra configuration.
+
+    This is a wrapper around ``np.array``.
+
+    Unlike ``np.array``, the additional single-dimensional indices added by
+    ``dims`` or ``min_dims`` will appear at the *end* of the shape (for example,
+    ``array([1, 2, 3], dims=4).shape == (3, 1, 1, 1)``).
+
+    Parameters
+    ----------
+    dims : int or None
+        If not ``None``, force the output array to have exactly this many indices.
+        If the input has more than this number of indices, this throws an error.
+    min_dims : int
+        Force the output array to have at least this many indices
+        (ignored if ``dims is not None``).
+    readonly : bool
+        Make the output array read-only.
+    **kwargs
+        Additional keyword arguments to pass to ``np.array``.
+    """
 
     y = np.array(x, **kwargs)
     dims = max(min_dims, y.ndim) if dims is None else dims

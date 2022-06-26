@@ -255,7 +255,7 @@ class Exponential(Distribution):
         shape = self._sample_shape(n, d)
         x = rng.exponential(self.scale, shape) + self.shift
         high = np.nextafter(self.high, np.asarray(-np.inf, dtype=x.dtype))
-        return np.clip(x, self.shift, high)
+        return npext.clip(x, self.shift, high)
 
 
 class UniformHypersphere(Distribution):
@@ -354,7 +354,7 @@ class Choice(Distribution):
 
     @property
     def dimensions(self):
-        return np.prod(self.options.shape[1:])
+        return 0 if self.options.ndim == 1 else np.prod(self.options.shape[1:])
 
     def sample(self, n, d=None, rng=np.random):
         if d is not None and self.dimensions != d:

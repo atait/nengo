@@ -170,7 +170,7 @@ class LstsqNoise(Solver):
 
     def __call__(self, A, Y, rng=np.random):
         tstart = time.time()
-        sigma = self.noise * A.max()
+        sigma = self.noise * np.amax(np.abs(A))
         A = A + rng.normal(scale=sigma, size=A.shape)
         X, info = self.solver(A, Y, 0, rng=rng)
         info["time"] = time.time() - tstart
@@ -242,7 +242,7 @@ class LstsqL2nz(LstsqL2):
         # Compute the equivalent noise standard deviation. This equals the
         # base amplitude (noise_amp times the overall max activation) times
         # the square-root of the fraction of non-zero components.
-        sigma = (self.reg * A.max()) * np.sqrt((A > 0).mean(axis=0))
+        sigma = (self.reg * np.amax(np.abs(A))) * np.sqrt((np.abs(A) > 0).mean(axis=0))
 
         # sigma == 0 means the neuron is never active, so won't be used, but
         # we have to make sigma != 0 for numeric reasons.
@@ -375,7 +375,7 @@ class LstsqDrop(Solver):
 
     def __call__(self, A, Y, rng=np.random):
         tstart = time.time()
-        Y, m, n, _, matrix_in = format_system(A, Y)
+        Y, _, _, _, matrix_in = format_system(A, Y)
 
         # solve for coefficients using standard solver
         X, info0 = self.solver1(A, Y, rng=rng)
@@ -457,7 +457,7 @@ class Nnls(Solver):
         import scipy.optimize  # pylint: disable=import-outside-toplevel
 
         tstart = time.time()
-        Y, m, n, _, matrix_in = format_system(A, Y)
+        Y, _, n, _, matrix_in = format_system(A, Y)
         d = Y.shape[1]
 
         X = np.zeros((n, d))
@@ -491,13 +491,13 @@ class NnlsL2(Nnls):
         import scipy.optimize  # pylint: disable=import-outside-toplevel
 
         tstart = time.time()
-        Y, m, n, _, matrix_in = format_system(A, Y)
+        Y, _, n, _, matrix_in = format_system(A, Y)
         d = Y.shape[1]
 
         # form Gram matrix so we can add regularization
         GA = np.dot(A.T, A)
         np.fill_diagonal(GA, GA.diagonal() + A.shape[0] * sigma ** 2)
-        GY = np.dot(A.T, Y.clip(0, None))
+        GY = np.dot(A.T, np.maximum(Y, 0))
         # ^ TODO: why is it better if we clip Y to be positive here?
 
         X = np.zeros((n, d))

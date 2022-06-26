@@ -5,8 +5,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from nengo.utils.ensemble import tuning_curves
-
 has_prop_cycle = LooseVersion(matplotlib.__version__) >= "1.5.0"
 
 if has_prop_cycle:
@@ -20,9 +18,9 @@ def get_color_cycle():
         # Apparently the 'color' key may not exist, so have to fail gracefully
         try:
             return [prop["color"] for prop in cycle]
-        except KeyError:
+        except KeyError:  # pragma: no cover
             pass  # Fall back on deprecated axes.color_cycle
-    return matplotlib.rcParams["axes.color_cycle"]
+    return matplotlib.rcParams["axes.color_cycle"]  # pragma: no cover
 
 
 def set_color_cycle(colors, ax=None):
@@ -32,7 +30,7 @@ def set_color_cycle(colors, ax=None):
             plt.rc("axes", prop_cycle=cycler("color", colors))
         else:
             ax.set_prop_cycle("color", colors)
-    else:
+    else:  # pragma: no cover
         if ax is None:
             plt.rc("axes", color_cycle=colors)
         else:
@@ -63,12 +61,12 @@ def axis_size(ax=None):
     return bbox.width * fig.dpi, bbox.height * fig.dpi
 
 
-def implot(plt, x, y, Z, ax=None, colorbar=True, **kwargs):
+def implot(plt_, x, y, Z, ax=None, colorbar=True, **kwargs):
     """Image plot of general data (like imshow but with non-pixel axes).
 
     Parameters
     ----------
-    plt : plot object
+    plt_ : plot object
         Plot object, typically ``matplotlib.pyplot``.
     x : (M,) array_like
         Vector of x-axis points, must be linear (equally spaced).
@@ -83,7 +81,7 @@ def implot(plt, x, y, Z, ax=None, colorbar=True, **kwargs):
     **kwargs
         Additional arguments for ``ax.imshow``.
     """
-    ax = plt.gca() if ax is None else ax
+    ax = plt_.gca() if ax is None else ax
 
     def is_linear(x):
         diff = np.diff(x)
@@ -92,7 +90,7 @@ def implot(plt, x, y, Z, ax=None, colorbar=True, **kwargs):
     assert is_linear(x) and is_linear(y)
     image = ax.imshow(Z, aspect="auto", extent=(x[0], x[-1], y[-1], y[0]), **kwargs)
     if colorbar:
-        plt.colorbar(image, ax=ax)
+        plt_.colorbar(image, ax=ax)
 
 
 def rasterplot(time, spikes, ax=None, use_eventplot=False, **kwargs):  # noqa
@@ -137,12 +135,18 @@ def rasterplot(time, spikes, ax=None, use_eventplot=False, **kwargs):  # noqa
        ...
 
     """
-    n_times, n_neurons = spikes.shape
+    time = np.asarray(time)
+    spikes = np.array(spikes, copy=False, ndmin=2)
+    assert time.ndim == 1, "`time` must be 1-D array of simulation time points"
+    assert spikes.ndim == 2, "`spikes` must be 2-D array of shape (n_times, n_neurons)"
+
+    n_times, n_neurons = spikes.shape  # pylint: disable=unpacking-non-sequence
+    assert n_times == time.size, "`len(time)` must match `len(spikes)`"
 
     if ax is None:
         ax = plt.gca()
 
-    if use_eventplot and not hasattr(ax, "eventplot"):
+    if use_eventplot and not hasattr(ax, "eventplot"):  # pragma: no cover
         warnings.warn(
             "Matplotlib version %s does not have 'eventplot'. "
             "Falling back to non-eventplot version." % matplotlib.__version__
@@ -200,23 +204,3 @@ def rasterplot(time, spikes, ax=None, use_eventplot=False, **kwargs):  # noqa
     ax.yaxis.set_ticks_position("none")
 
     return ax
-
-
-def plot_tuning_curves(ensemble, sim, connection=None, ax=None):
-    """Plot tuning curves for the given ensemble and simulator.
-
-    If a connection is provided, the decoders will be used to set
-    the colours of the tuning curves.
-    """
-
-    if ax is None:
-        ax = plt.gca()
-
-    evals, t_curves = tuning_curves(ensemble, sim)
-
-    if connection is not None:
-        if connection.dimensions > 1:
-            warnings.warn("Ignoring dimensions > 1 in plot_tuning_curves")
-        cm = plt.cm.ScalarMappable(cmap=plt.cm.coolwarm)
-        set_color_cycle(cm.to_rgba(sim.data[connection].decoders[0]), ax=ax)
-    ax.plot(evals, t_curves)

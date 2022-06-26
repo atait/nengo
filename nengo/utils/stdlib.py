@@ -1,16 +1,14 @@
 """Functions that extend the Python Standard Library."""
 
-import collections
+from collections import namedtuple
+from collections.abc import Hashable, MutableMapping, MutableSet
 import inspect
 import itertools
-import os
-import shutil
-import sys
 import time
 import weakref
 
 
-class WeakKeyDefaultDict(collections.abc.MutableMapping):
+class WeakKeyDefaultDict(MutableMapping):
     """WeakKeyDictionary that allows to define a default."""
 
     def __init__(self, default_factory, items=None, **kwargs):
@@ -39,7 +37,7 @@ class WeakKeyDefaultDict(collections.abc.MutableMapping):
         return len(self._data)
 
 
-class WeakKeyIDDictionary(collections.abc.MutableMapping):
+class WeakKeyIDDictionary(MutableMapping):
     """WeakKeyDictionary that uses object ID to hash.
 
     This ignores the ``__eq__`` and ``__hash__`` functions on objects,
@@ -67,7 +65,6 @@ class WeakKeyIDDictionary(collections.abc.MutableMapping):
         return len(self._keyrefs)
 
     def __delitem__(self, k):
-        assert weakref.ref(k)
         if k in self:
             del self._keyrefs[id(k)]
             del self._keyvalues[id(k)]
@@ -77,15 +74,10 @@ class WeakKeyIDDictionary(collections.abc.MutableMapping):
             raise KeyError(str(k))
 
     def __getitem__(self, k):
-        assert weakref.ref(k)
-        if k in self:
-            return self._keyvalues[id(k)]
-        else:
-            raise KeyError(str(k))
+        return self._keyvalues[id(k)]
 
     def __setitem__(self, k, v):
         ref = weakref.ref(k, self.__free_value)  # add callback
-        assert ref
         self._keyrefs[id(k)] = k
         self._keyvalues[id(k)] = v
         self._ref2id[id(ref)] = id(k)
@@ -100,31 +92,27 @@ class WeakKeyIDDictionary(collections.abc.MutableMapping):
         del self._ref2id[id(ref)]
 
     def get(self, k, default=None):
-        return self._keyvalues[id(k)] if k in self else default
+        """Return item from dictionary."""
+
+        return self._keyvalues.get(id(k), default)
 
     def keys(self):
-        return self._keyrefs.values()
+        """Return dictionary keys."""
 
-    def iterkeys(self):
         return self._keyrefs.values()
 
     def items(self):
+        """Return dictionary key, value pairs."""
         for k in self:
             yield k, self[k]
 
-    def iteritems(self):
-        for k in self:
-            yield k, self[k]
-
-    def update(self, in_dict=None, **kwargs):
-        if in_dict is not None:
-            for key, value in in_dict.items():
-                self.__setitem__(key, value)
-        if len(kwargs) > 0:
-            self.update(kwargs)
+    def update(self, in_dict):
+        """Update with items from other dictionary."""
+        for key, value in in_dict.items():
+            self.__setitem__(key, value)
 
 
-class WeakSet(collections.abc.MutableSet):
+class WeakSet(MutableSet):
     """Uses weak references to store the items in the set."""
 
     def __init__(self, items=None):
@@ -150,7 +138,7 @@ class WeakSet(collections.abc.MutableSet):
             del self._data[key]
 
 
-CheckedCall = collections.namedtuple("CheckedCall", ("value", "invoked"))
+CheckedCall = namedtuple("CheckedCall", ("value", "invoked"))
 
 
 def checked_call(func, *args, **kwargs):
@@ -165,7 +153,7 @@ def checked_call(func, *args, **kwargs):
     """
     try:
         return CheckedCall(func(*args, **kwargs), True)
-    except Exception:
+    except (TypeError, ValueError):
         tb = inspect.trace()
         if not len(tb) or tb[-1][0] is not inspect.currentframe():
             raise  # exception occurred inside func
@@ -191,7 +179,7 @@ def execfile(path, globals, locals=None):
         source = fp.read()
 
     code = compile(source, path, "exec")
-    exec(code, globals, locals)
+    exec(code, globals, locals)  # pylint: disable = exec-used
 
 
 def groupby(objects, key, hashable=None, force_list=True):
@@ -228,7 +216,7 @@ def groupby(objects, key, hashable=None, force_list=True):
         # get first item without advancing iterator, and see if key is hashable
         objects, objects2 = itertools.tee(iter(objects))
         item0 = next(objects2)
-        hashable = isinstance(key(item0), collections.abc.Hashable)
+        hashable = isinstance(key(item0), Hashable)
 
     if hashable:
         # use a dictionary to sort by hash (faster)
@@ -242,15 +230,6 @@ def groupby(objects, key, hashable=None, force_list=True):
             return [(k, list(g)) for k, g in keygroupers]
         else:
             return keygroupers
-
-
-def get_terminal_size(fallback=(80, 24)):
-    """Look up character width of terminal."""
-
-    try:
-        return shutil.get_terminal_size(fallback)
-    except Exception:  # pragma: no cover
-        return os.terminal_size(fallback)
 
 
 class Timer:
@@ -280,17 +259,15 @@ class Timer:
 
     """
 
-    TIMER = time.clock if sys.platform == "win32" else time.time
-
     def __init__(self):
         self.start = None
         self.end = None
         self.duration = None
 
     def __enter__(self):
-        self.start = Timer.TIMER()
+        self.start = time.perf_counter()
         return self
 
     def __exit__(self, type, value, traceback):
-        self.end = Timer.TIMER()
+        self.end = time.perf_counter()
         self.duration = self.end - self.start

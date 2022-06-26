@@ -1,4 +1,4 @@
-import collections
+from collections import namedtuple
 
 import numpy as np
 
@@ -19,7 +19,7 @@ from nengo.utils.numpy import is_integer, is_iterable
 built_attrs = ["eval_points", "solver_info", "weights", "transform"]
 
 
-class BuiltConnection(collections.namedtuple("BuiltConnection", built_attrs)):
+class BuiltConnection(namedtuple("BuiltConnection", built_attrs)):
     """Collects the parameters generated in `.build_connection`.
 
     These are stored here because in the majority of cases the equivalent
@@ -96,7 +96,7 @@ def build_linear_system(model, conn, rng):
     activities = get_activities(model.params[ens], ens, eval_points)
     if np.count_nonzero(activities) == 0:
         raise BuildError(
-            "Building %s: 'activites' matrix is all zero for %s. "
+            "Building %s: 'activities' matrix is all zero for %s. "
             "This is because no evaluation points fall in the firing "
             "ranges of any neurons." % (conn, conn.pre_obj)
         )
@@ -231,13 +231,14 @@ def build_connection(model, conn):
                 "model, or has a size of zero."
                 % (conn, "pre" if is_pre else "post", target)
             )
-        if key not in model.sig[target]:
+        signal = model.sig[target].get(key, None)
+        if signal is None or signal.size == 0:
             raise BuildError(
                 "Building %s: the %r object %s has a %r size of zero."
                 % (conn, "pre" if is_pre else "post", target, key)
             )
 
-        return model.sig[target][key]
+        return signal
 
     model.sig[conn]["in"] = get_prepost_signal(is_pre=True)
     model.sig[conn]["out"] = get_prepost_signal(is_pre=False)
@@ -265,11 +266,8 @@ def build_connection(model, conn):
             model.add_op(SimPyFunc(in_signal, conn.function, None, sliced_in))
     elif isinstance(conn.pre_obj, Ensemble):  # Normal decoded connection
         eval_points, decoders, solver_info = model.build(conn.solver, conn, rng)
-        if conn.solver.weights:
+        if isinstance(conn.post_obj, Ensemble) and conn.solver.weights:
             model.sig[conn]["out"] = model.sig[conn.post_obj.neurons]["in"]
-
-            # weight solvers only allowed on ensemble->ensemble connections
-            assert isinstance(conn.post_obj, Ensemble)
 
             encoders = model.params[conn.post_obj].scaled_encoders.T
             encoders = encoders[conn.post_slice]
@@ -323,7 +321,7 @@ def build_connection(model, conn):
 
         model.add_op(
             ElementwiseInc(
-                gains, weighted, sliced_out, tag="%s.gains_elementwiseinc" % conn,
+                gains, weighted, sliced_out, tag="%s.gains_elementwiseinc" % conn
             )
         )
     else:

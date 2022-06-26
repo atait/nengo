@@ -4,6 +4,7 @@ from datetime import timedelta
 from html import escape
 import importlib
 import os
+from shutil import get_terminal_size
 import sys
 import threading
 import time
@@ -12,14 +13,13 @@ import warnings
 
 import numpy as np
 
-from .stdlib import get_terminal_size
 from .ipython import check_ipy_version, get_ipython
 from ..exceptions import ValidationError
 from ..rc import rc
 
 
 if get_ipython() is not None:
-    from IPython.display import display, Javascript
+    from IPython.display import display, Javascript  # pragma: no cover
 
 
 class MemoryLeakWarning(UserWarning):
@@ -193,7 +193,6 @@ class ProgressBar:
 
         Indicates that not further updates will be made.
         """
-        pass
 
 
 class NoProgressBar(ProgressBar):
@@ -426,15 +425,14 @@ class HtmlProgressBar(ProgressBar):  # pragma: no cover
             self._handle.update(self._js_update(progress))
 
     class _HtmlBase:
-        def __init__(self, uuid):
-            self.uuid = uuid
+        def __init__(self, my_uuid):
+            self.uuid = my_uuid
 
         def __repr__(self):
             return (
                 "HtmlProgressBar cannot be displayed. Please use the "
-                "TerminalProgressBar. It can be enabled with "
-                "`nengo.rc.set('progress', 'progress_bar', "
-                "'nengo.utils.progress.TerminalProgressBar')`."
+                "TerminalProgressBar. It can be enabled with `nengo.rc['progress']"
+                "['progress_bar'] = 'nengo.utils.progress.TerminalProgressBar'`."
             )
 
         def _repr_html_(self):
@@ -645,8 +643,7 @@ class WriteProgressToFile(ProgressBar):
     def update(self, progress):
         if progress.finished:
             text = "{} finished in {}.".format(
-                self.progress.name_after,
-                timestamp2timedelta(progress.elapsed_seconds()),
+                progress.name_after, timestamp2timedelta(progress.elapsed_seconds())
             )
         else:
             text = "{progress:.0f}%, ETA: {eta}".format(
@@ -768,27 +765,23 @@ def get_default_progressbar():
     ``ProgressBar``
     """
     try:
-        pbar = rc.getboolean("progress", "progress_bar")
+        pbar = rc["progress"].getboolean("progress_bar")
         if pbar:
             pbar = "auto"
         else:
             pbar = "none"
     except ValueError:
-        pbar = rc.get("progress", "progress_bar")
+        pbar = rc["progress"]["progress_bar"]
 
     if pbar.lower() == "auto":
-        if get_ipython() is not None and check_ipy_version((5, 0)):
+        if get_ipython() is not None and check_ipy_version((5, 0)):  # pragma: no cover
             return AutoProgressBar(IPython5ProgressBar())
         else:
             return AutoProgressBar(TerminalProgressBar())
     if pbar.lower() == "none":
         return NoProgressBar()
 
-    try:
-        return _load_class(pbar)()
-    except Exception as e:
-        warnings.warn(str(e))
-        return NoProgressBar()
+    return _load_class(pbar)()
 
 
 def to_progressbar(progress_bar):

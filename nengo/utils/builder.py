@@ -1,6 +1,6 @@
 """Helper functions for backends generating their own Builder system."""
 
-import collections
+from collections import defaultdict
 
 import numpy as np
 
@@ -27,8 +27,7 @@ def full_transform(  # noqa: C901
     """
     # imported here to avoid circular imports
     # pylint: disable=import-outside-toplevel
-    from nengo import Dense
-    from nengo.transforms import NoTransform
+    from nengo.transforms import Dense, NoTransform
 
     if isinstance(conn.transform, NoTransform):
         transform = np.array(1.0)
@@ -65,12 +64,10 @@ def full_transform(  # noqa: C901
     size_out = conn.post_obj.size_in if slice_post else conn.size_out
     new_transform = np.zeros((size_out, size_in))
 
-    if transform.ndim < 2:
-        new_transform[
-            np.arange(size_out)[post_slice], np.arange(size_in)[pre_slice]
-        ] = transform
-        return new_transform
-    elif transform.ndim == 2:
+    # Dense transforms should not be able to have > 2 axes, but just in case
+    assert transform.ndim <= 2, "connection transform must have <= 2 axes"
+
+    if transform.ndim == 2:
         repeated_inds = lambda x: (
             not isinstance(x, slice) and np.unique(x).size != len(x)
         )
@@ -85,11 +82,11 @@ def full_transform(  # noqa: C901
         # Note: the above is a little obscure, but we do it so that lists of
         #  indices can specify selections of rows and columns, rather than
         #  just individual items
-        return new_transform
     else:
-        raise ValidationError(
-            "Transforms with > 2 dims not supported", attr="transform", obj=conn
-        )
+        new_transform[
+            np.arange(size_out)[post_slice], np.arange(size_in)[pre_slice]
+        ] = transform
+    return new_transform
 
 
 def default_n_eval_points(n_neurons, dimensions):
@@ -109,7 +106,9 @@ def default_n_eval_points(n_neurons, dimensions):
         For a connection, this would be the number of dimensions in the
         ``pre`` ensemble.
     """
-    return max(np.clip(500 * dimensions, 750, 2500), 2 * n_neurons)
+    from nengo.utils.numpy import clip  # pylint: disable=import-outside-toplevel
+
+    return max(clip(500 * dimensions, 750, 2500), 2 * n_neurons)
 
 
 def objs_and_connections(network):
@@ -125,7 +124,8 @@ def generate_graphviz(*args, **kwargs):
 def _create_replacement_connection(c_in, c_out):
     """Generate a new Connection to replace two through a passthrough Node."""
     # imported here to avoid circular imports
-    from nengo import Connection  # pylint: disable=import-outside-toplevel
+    # pylint: disable=import-outside-toplevel
+    from nengo.connection import Connection
 
     assert c_in.post_obj is c_out.pre_obj
     assert c_in.post_obj.output is None
@@ -195,7 +195,8 @@ def remove_passthrough_nodes(  # noqa: C901
     Nodes.
     """
     # imported here to avoid circular imports
-    from nengo import Node  # pylint: disable=import-outside-toplevel
+    # pylint: disable=import-outside-toplevel
+    from nengo.node import Node
 
     if create_connection_fn is None:
         create_connection_fn = _create_replacement_connection
@@ -238,8 +239,8 @@ def remove_passthrough_nodes(  # noqa: C901
 
 def find_all_io(connections):
     """Build up a list of all inputs and outputs for each object."""
-    inputs = collections.defaultdict(list)
-    outputs = collections.defaultdict(list)
+    inputs = defaultdict(list)
+    outputs = defaultdict(list)
     for c in connections:
         inputs[c.post_obj].append(c)
         outputs[c.pre_obj].append(c)

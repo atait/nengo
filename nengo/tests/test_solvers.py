@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import nengo
-from nengo.dists import UniformHypersphere
+from nengo.dists import Choice, Uniform, UniformHypersphere
 from nengo.exceptions import BuildError, ValidationError
 from nengo.utils.numpy import rms, norm
 from nengo.utils.stdlib import Timer
@@ -46,14 +46,14 @@ class Factory:
     def __str__(self):
         try:
             inst = self()
-        except Exception:
+        except Exception:  # pylint: disable = broad-except
             inst = "%s(args=%s, kwargs=%s)" % (self.klass, self.args, self.kwargs)
         return str(inst)
 
     def __repr__(self):
         try:
             inst = self()
-        except Exception:
+        except Exception:  # pylint: disable = broad-except
             inst = "<%r instance>" % (self.klass.__name__)
         return repr(inst)
 
@@ -141,6 +141,46 @@ def test_decoder_solver(Solver, plt, rng, allclose):
     assert rel_rmse < 0.02
 
 
+@pytest.mark.parametrize(
+    "Solver", [Lstsq, LstsqNoise, LstsqL2, LstsqL2nz, LstsqDrop, LstsqMultNoise]
+)
+def test_all_negative_activities(allclose, plt, seed, Simulator, Solver):
+    class CheckActivitiesSolver(Solver):
+        def __call__(self, A, Y, rng=np.random):
+            assert np.all(A < 0)
+            return super().__call__(A, Y, rng=rng)
+
+    val = -0.5
+
+    with nengo.Network(seed=seed) as net:
+        input = nengo.Node(output=val, label="input")
+        ens = nengo.Ensemble(
+            30,
+            1,
+            neuron_type=nengo.Tanh(),
+            encoders=Choice([[1]]),
+            intercepts=Uniform(0, 0.95),
+            eval_points=Uniform(-1, -0.1),
+        )
+        nengo.Connection(input, ens)
+        in_p = nengo.Probe(input, "output")
+        ens_p = nengo.Probe(
+            ens, "decoded_output", synapse=0.05, solver=CheckActivitiesSolver()
+        )
+
+    with Simulator(net) as sim:
+        sim.run(0.3)
+
+    t = sim.trange()
+    plt.plot(t, sim.data[in_p], label="Input")
+    plt.plot(t, sim.data[ens_p], label="Neuron approximation, pstc=0.05")
+    plt.xlim(right=t[-1])
+    plt.legend(loc=0)
+
+    assert allclose(sim.data[in_p], val, atol=0.1, rtol=0.01)
+    assert allclose(sim.data[ens_p][-10:], val, atol=0.1, rtol=0.01)
+
+
 @pytest.mark.parametrize("Solver", [LstsqNoise, LstsqL2, LstsqL2nz])
 def test_subsolvers(Solver, seed, rng, tol=1e-2):
     get_rng = lambda: np.random.RandomState(seed)
@@ -148,9 +188,9 @@ def test_subsolvers(Solver, seed, rng, tol=1e-2):
     A, b = get_system(2000, 100, 5, rng=rng)
     x0, _ = Solver(solver=lstsq.Cholesky())(A, b, rng=get_rng())
 
-    subsolvers = [lstsq.Conjgrad, lstsq.BlockConjgrad]
+    subsolvers = [lstsq.Conjgrad(tol=tol), lstsq.BlockConjgrad(tol=tol)]
     for subsolver in subsolvers:
-        x, _ = Solver(solver=subsolver(tol=tol))(A, b, rng=get_rng())
+        x, _ = Solver(solver=subsolver)(A, b, rng=get_rng())
         rel_rmse = rms(x - x0) / rms(x0)
         assert rel_rmse < 5 * tol
         # the above 5 * tol is just a heuristic; the main purpose of this
@@ -309,18 +349,22 @@ def test_subsolvers_L2(rng, allclose):
         assert allclose(x0, x, atol=1e-5, rtol=1e-3), "Solver %s" % solver.__name__
 
 
+@pytest.mark.slow
 @pytest.mark.filterwarnings("ignore:Objective did not converge.")
-def test_subsolvers_L1(rng):
+def test_subsolvers_L1(rng, allclose):
     pytest.importorskip("sklearn")
 
     A, B = get_system(m=2000, n=1000, d=10, rng=rng)
 
     l1 = 1e-4
     with Timer() as t:
-        LstsqL1(l1=l1, l2=0)(A, B, rng=rng)
+        x, info = LstsqL1(l1=l1, l2=0)(A, B, rng=rng)
     logging.info("duration: %0.3f", t.duration)
 
-    # TODO: add assertions
+    Ax = np.dot(A, x)
+    assert rms(Ax - B) < 2e-2
+    assert allclose(Ax, B, atol=0.2, record_rmse=False)
+    assert np.max(info["rmses"]) < 3e-2
 
 
 @pytest.mark.slow
@@ -387,7 +431,7 @@ def test_compare_solvers(Simulator, plt, seed, allclose):
 
 
 @pytest.mark.slow
-def test_regularization(Simulator, nl_nodirect, plt):
+def test_regularization(Simulator, NonDirectNeuronType, plt):
     # TODO: multiple trials per parameter set, with different seeds
 
     Solvers = [LstsqL2, LstsqL2nz]
@@ -403,7 +447,7 @@ def test_regularization(Simulator, nl_nodirect, plt):
 
     model = nengo.Network("test_regularization")
     with model:
-        model.config[nengo.Ensemble].neuron_type = nl_nodirect()
+        model.config[nengo.Ensemble].neuron_type = NonDirectNeuronType()
         u = nengo.Node(output=input_function)
         up = nengo.Probe(u)
 
@@ -516,7 +560,7 @@ def test_eval_points_static(plt, rng):
 
 
 @pytest.mark.slow
-def test_eval_points(Simulator, nl_nodirect, plt, seed, rng):
+def test_eval_points(Simulator, NonDirectNeuronType, plt, seed, rng):
     n = 100
     d = 5
     filter = 0.08
@@ -541,7 +585,7 @@ def test_eval_points(Simulator, nl_nodirect, plt, seed, rng):
         for i, n_points in enumerate(eval_points):
             model = nengo.Network(seed=seed)
             with model:
-                model.config[nengo.Ensemble].neuron_type = nl_nodirect()
+                model.config[nengo.Ensemble].neuron_type = NonDirectNeuronType()
                 u = nengo.Node(output=x)
                 a = nengo.Ensemble(n * d, dimensions=d, eval_points=points[:n_points])
                 nengo.Connection(u, a, synapse=0)

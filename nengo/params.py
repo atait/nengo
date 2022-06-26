@@ -1,4 +1,4 @@
-import collections
+from collections import namedtuple, OrderedDict
 import inspect
 
 import numpy as np
@@ -49,10 +49,13 @@ def iter_params(obj):
 
 def equal(a, b):
     """Check if two (possibly array-like) objects are equal."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set(a) == set(b) and all(equal(a[key], b[key]) for key in a)
+
     if is_array_like(a) or is_array_like(b):
         return np.array_equal(a, b)
-    else:
-        return a == b
+
+    return a == b
 
 
 class Parameter:
@@ -131,14 +134,18 @@ class Parameter:
         if instance is None:
             # Return self so default can be inspected
             return self
-        if not self.configurable and instance not in self.data:
-            raise ValidationError(
-                "Unconfigurable parameters have no defaults. Please ensure the"
-                " value of the parameter is set before trying to access it.",
-                attr=self.name,
-                obj=instance,
-            )
-        return self.data.get(instance, self.default)
+
+        try:
+            return self.data[instance]
+        except KeyError as e:
+            if not self.configurable:
+                raise ValidationError(
+                    "Unconfigurable parameters have no defaults. Please ensure the"
+                    " value of the parameter is set before trying to access it.",
+                    attr=self.name,
+                    obj=instance,
+                ) from e
+            return self.default
 
     def __set__(self, instance, value):
         self.data[instance] = self.coerce(instance, value)
@@ -223,10 +230,11 @@ class ObsoleteParam(Parameter):
         super().__init__(name, optional=True)
 
     def __get__(self, instance, type_):
-        if instance is None:
-            # Return self so default can be inspected
-            return self
-        self.raise_error()
+        if instance is not None:
+            self.raise_error()
+
+        # Return self so default can be inspected
+        return self
 
     def coerce(self, instance, value):
         if value is not Unconfigurable:
@@ -365,10 +373,10 @@ class TupleParam(Parameter):
         if value is not None:
             try:
                 value = tuple(value)
-            except TypeError:
+            except TypeError as e:
                 raise ValidationError(
                     "Value must be castable to a tuple", attr=self.name, obj=instance
-                )
+                ) from e
 
             if self.length is not None and len(value) != self.length:
                 raise ValidationError(
@@ -422,9 +430,22 @@ class ShapeParam(TupleParam):
 class DictParam(Parameter):
     """A parameter where the value is a dictionary."""
 
+    equatable = True
+
     def coerce(self, instance, value):
         self.check_type(instance, value, dict)
         return super().coerce(instance, value)
+
+    def hashvalue(self, instance):
+        d = self.__get__(instance, None)
+        if d is None:
+            return hash(d)
+        return hash(
+            tuple(
+                (k, array_hash(v) if is_array_like(v) else hash(v))
+                for k, v in d.items()
+            )
+        )
 
 
 class NdarrayParam(Parameter):
@@ -478,13 +499,13 @@ class NdarrayParam(Parameter):
         else:
             try:
                 ndarray = np.array(ndarray, dtype=self.dtype)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as e:
                 raise ValidationError(
                     "Must be a %s NumPy array (got type %r)"
                     % (self.dtype, type(ndarray).__name__),
                     attr=self.name,
                     obj=instance,
-                )
+                ) from e
 
         if self.readonly:
             ndarray.setflags(write=False)
@@ -543,7 +564,7 @@ class NdarrayParam(Parameter):
         return ndarray
 
 
-FunctionInfo = collections.namedtuple("FunctionInfo", ["function", "size"])
+FunctionInfo = namedtuple("FunctionInfo", ["function", "size"])
 
 
 class FunctionParam(Parameter):
@@ -598,7 +619,7 @@ class FrozenObject:
     _param_init_order = []
 
     def __init__(self):
-        self._paramdict = collections.OrderedDict(
+        self._paramdict = OrderedDict(
             (k, v)
             for k, v in inspect.getmembers(type(self))
             if isinstance(v, Parameter) and not isinstance(v, ObsoleteParam)

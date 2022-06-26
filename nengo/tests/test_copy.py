@@ -7,7 +7,7 @@ import pytest
 import nengo
 from nengo import spa
 from nengo.exceptions import NetworkContextError, NotAddedToNetworkWarning
-from nengo.params import IntParam, iter_params
+from nengo.params import IntParam, iter_params, NdarrayParam
 from nengo.utils.numpy import is_array_like
 from nengo.utils.progress import TerminalProgressBar
 
@@ -16,9 +16,7 @@ def assert_is_copy(cp, original):
     assert cp is not original  # ensures separate parameters
     for param in iter_params(cp):
         param_inst = getattr(cp, param)
-        if isinstance(param_inst, nengo.solvers.Solver) or isinstance(
-            param_inst, nengo.base.NengoObject
-        ):
+        if isinstance(param_inst, (nengo.solvers.Solver, nengo.base.NengoObject)):
             assert param_inst is getattr(original, param)
         elif is_array_like(param_inst):
             assert np.all(param_inst == getattr(original, param))
@@ -30,9 +28,7 @@ def assert_is_deepcopy(cp, original):
     assert cp is not original  # ensures separate parameters
     for param in iter_params(cp):
         param_inst = getattr(cp, param)
-        if isinstance(param_inst, nengo.solvers.Solver) or isinstance(
-            param_inst, nengo.base.NengoObject
-        ):
+        if isinstance(param_inst, (nengo.solvers.Solver, nengo.base.NengoObject)):
             assert_is_copy(param_inst, getattr(original, param))
         elif is_array_like(param_inst):
             assert np.all(param_inst == getattr(original, param))
@@ -76,7 +72,6 @@ def make_function_connection():
 
 
 def make_learning_connection():
-    """Test pickling LearningRule and Neurons"""
     with nengo.Network():
         e1 = nengo.Ensemble(10, 1)
         e2 = nengo.Ensemble(11, 1)
@@ -288,11 +283,14 @@ class TestPickle:
     """A basic set of tests that should pass for all objects."""
 
     def test_pickle_roundtrip(self, make_f):
+        """Tests making a deepcopy using pickling and unpickling"""
         original = make_f()
         cp = pickle.loads(pickle.dumps(original))
         assert_is_deepcopy(cp, original)
 
     def test_unpickling_warning_in_network(self, make_f):
+        """Tests a not added to network warning when unpickling
+        inside a network when the original was not in the network"""
         original = make_f()
         pkl = pickle.dumps(original)
         with nengo.Network():
@@ -343,15 +341,29 @@ def test_copy_spa(Simulator):
 
 
 def test_copy_instance_params():
-    with nengo.Network() as original:
-        original.config[nengo.Ensemble].set_param(
+    with nengo.Network() as orig_net:
+        orig_net.config[nengo.Ensemble].set_param(
             "test", IntParam("test", optional=True)
         )
-        ens = nengo.Ensemble(10, 1)
-        original.config[ens].test = 42
+        orig_net.config[nengo.Ensemble].set_param(
+            "test2", NdarrayParam("test2", optional=True)
+        )
 
-    cp = original.copy()
-    assert cp.config[cp.ensembles[0]].test == 42
+        orig_ens = nengo.Ensemble(10, 1)
+        orig_net.config[orig_ens].test = 42
+        orig_net.config[orig_ens].test2 = np.array([49])
+
+    # test copy function
+    copy_net = orig_net.copy()
+    copy_ens = copy_net.ensembles[0]
+    assert copy_net.config[copy_ens].test == 42
+    assert np.array_equal(copy_net.config[copy_ens].test2, np.array([49]))
+
+    # test copy via pickle
+    copy_net = pickle.loads(pickle.dumps(orig_net))
+    copy_ens = copy_net.ensembles[0]
+    assert copy_net.config[copy_ens].test == 42
+    assert np.array_equal(copy_net.config[copy_ens].test2, np.array([49]))
 
 
 def test_pickle_model(Simulator, seed, allclose):

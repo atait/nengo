@@ -1,4 +1,4 @@
-import collections
+from collections import defaultdict
 import warnings
 
 import numpy as np
@@ -85,7 +85,7 @@ class Model:
         self.seeds = {}
         self.seeded = {}
 
-        self.sig = collections.defaultdict(dict)
+        self.sig = defaultdict(dict)
         self.sig["common"][0] = Signal(
             np.array(0.0, dtype=rc.float_dtype), readonly=True, name="ZERO"
         )
@@ -98,6 +98,7 @@ class Model:
         self.add_op(TimeUpdate(self.step, self.time))
 
         self.builder = Builder() if builder is None else builder
+
         self.build_callback = None
 
     def __str__(self):
@@ -114,7 +115,7 @@ class Model:
         the ``operators`` attribute.
         """
         self.operators.append(op)
-        if rc.getboolean("nengo.Simulator", "fail_fast"):
+        if rc["nengo.Simulator"].getboolean("fail_fast"):
             # Fail fast by trying make_step with a temporary sigdict
             signals = SignalDict()
             op.init_signals(signals)
@@ -132,7 +133,7 @@ class Model:
         """
         built = self.builder.build(self, obj, *args, **kwargs)
         if self.build_callback is not None:
-            self.build_callback(obj)
+            self.build_callback(obj)  # pylint: disable=not-callable
         return built
 
     def has_built(self, obj):
@@ -235,11 +236,9 @@ class Builder:
 
         for obj_cls in type(obj).__mro__:
             if obj_cls in cls.builders:
-                break
-        else:
-            raise BuildError("Cannot build object of type %r" % type(obj).__name__)
+                return cls.builders[obj_cls](model, obj, *args, **kwargs)
 
-        return cls.builders[obj_cls](model, obj, *args, **kwargs)
+        raise BuildError("Cannot build object of type %r" % type(obj).__name__)
 
     @classmethod
     def register(cls, nengo_class):

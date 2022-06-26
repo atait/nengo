@@ -14,11 +14,12 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.mathjax",
     "sphinx.ext.todo",
-    "sphinx.ext.viewcode",
     "nbsphinx",
     "nengo_sphinx_theme",
     "nengo_sphinx_theme.ext.backoff",
     "nengo_sphinx_theme.ext.redirects",
+    "nengo_sphinx_theme.ext.sourcelinks",
+    "notfound.extension",
     "numpydoc",
     "nengo_sphinx_theme.ext.autoautosummary",
     "nengo_sphinx_theme.ext.resolvedefaults",
@@ -41,7 +42,7 @@ if np.__version__ >= '1.14':
 # -- sphinx.ext.intersphinx
 intersphinx_mapping = {
     "nengo": ("https://www.nengo.ai/nengo/", None),
-    "numpy": ("https://docs.scipy.org/doc/numpy", None),
+    "numpy": ("https://numpy.org/doc/stable", None),
     "python": ("https://docs.python.org/3", None),
     "scipy": ("https://docs.scipy.org/doc/scipy/reference", None),
     "sklearn": ("https://scikit-learn.org/dev", None),
@@ -50,11 +51,15 @@ intersphinx_mapping = {
 # -- sphinx.ext.todo
 todo_include_todos = True
 
-# -- numpydoc config
-numpydoc_show_class_members = False
-
 # -- nbsphinx
 nbsphinx_timeout = -1
+
+# -- notfound.extension
+notfound_template = "404.html"
+notfound_urls_prefix = "/nengo/"
+
+# -- numpydoc config
+numpydoc_show_class_members = False
 
 # -- nengo_sphinx_theme.ext.autoautosummary
 autoautosummary_change_modules = {
@@ -67,11 +72,15 @@ autoautosummary_change_modules = {
         "nengo.neurons.RectifiedLinear",
         "nengo.neurons.SpikingRectifiedLinear",
         "nengo.neurons.Sigmoid",
+        "nengo.neurons.Tanh",
         "nengo.neurons.LIF",
         "nengo.neurons.LIFRate",
         "nengo.neurons.AdaptiveLIF",
         "nengo.neurons.AdaptiveLIFRate",
         "nengo.neurons.Izhikevich",
+        "nengo.neurons.RegularSpiking",
+        "nengo.neurons.PoissonSpiking",
+        "nengo.neurons.StochasticSpiking",
         "nengo.synapses.LinearFilter",
         "nengo.synapses.Lowpass",
         "nengo.synapses.Alpha",
@@ -85,6 +94,10 @@ autoautosummary_change_modules = {
         "nengo.builder.signal.Signal",
     ],
 }
+
+# -- nengo_sphinx_theme.ext.sourcelinks
+sourcelinks_module = "nengo"
+sourcelinks_url = "https://github.com/nengo/nengo"
 
 # -- sphinx
 nitpicky = True
@@ -120,7 +133,7 @@ html_favicon = os.path.join("_static", "favicon.ico")
 html_theme_options = {
     "nengo_logo": "general-full-light.svg",
     "nengo_logo_color": "#a8acaf",
-    "analytics_id": "UA-41658423-2",
+    "tagmanager_id": "GTM-KWCR2HN",
 }
 html_redirects = [
     ("backend_api.html", "backend-api.html"),

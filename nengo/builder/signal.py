@@ -281,8 +281,9 @@ class Signal:
         other : Signal
             The other signal we are investigating.
         """
-        return (self.is_view or other.is_view) and np.may_share_memory(
-            self.initial_value, other.initial_value
+        return (self is other) or (
+            (self.is_view or other.is_view)
+            and np.may_share_memory(self.initial_value, other.initial_value)
         )
 
     def reshape(self, *shape):
@@ -304,11 +305,11 @@ class Signal:
         try:
             # this raises AttributeError if cannot reshape without copying
             initial_value.shape = shape
-        except AttributeError:
+        except AttributeError as e:
             raise SignalError(
                 "Reshaping %s to %s would require the array to be copied "
                 "(because it is not contiguous), which is not supported" % (self, shape)
-            )
+            ) from e
         return Signal(
             initial_value,
             name="%s.reshape(%s)" % (self.name, shape),
@@ -334,13 +335,15 @@ class SignalDict(dict):
             if isinstance(key, Signal) and key.base is not key:
                 # return a view on the base signal
                 base = dict.__getitem__(self, key.base)
-                return np.ndarray(
+                retval = np.ndarray(
                     buffer=base,
                     dtype=key.dtype,
                     shape=key.shape,
                     offset=key.offset,
                     strides=key.strides,
                 )
+                dict.__setitem__(self, key, retval)
+                return retval
             else:
                 raise
 

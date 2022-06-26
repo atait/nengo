@@ -59,6 +59,7 @@ setup_py:
     - "Programming Language :: Python :: 3.5"
     - "Programming Language :: Python :: 3.6"
     - "Programming Language :: Python :: 3.7"
+    - "Programming Language :: Python :: 3.8"
     - "Topic :: Scientific/Engineering :: Artificial Intelligence"
 
 setup_cfg:
@@ -66,6 +67,8 @@ setup_cfg:
     omit_files:
       - "nengo/_vendor/*"
       - "nengo/spa/*"
+      # omit filter_design.py until it gets moved to nengo/_vendor
+      - "nengo/utils/filter_design.py"
   flake8:
     exclude:
       - compat.py
@@ -84,6 +87,7 @@ setup_cfg:
       - "ignore:Object <BasalGanglia \"bg\"> has already been built"
       - "ignore:Object <Thalamus \"thalamus\"> has already been built"
       - "ignore:IPython.core.inputsplitter is deprecated"
+      - "ignore:'step_math' has been renamed"
     plt_filename_drop:
       - ^nengo\.
       - tests\.
@@ -91,41 +95,10 @@ setup_cfg:
     ignore:
       - _vendor
       - compat.py
-      - nengo/spa
+      - spa
     disable:
-      # TODO: fix these and start checking for them
-      - abstract-method
-      - bad-continuation
-      - bad-string-format-type
-      - broad-except
-      - not-callable
-      - chained-comparison
-      - consider-iterating-dictionary
-      - consider-merging-isinstance
-      - consider-using-in
-      - cyclic-import
-      - eval-used
-      - exec-used
-      - expression-not-assigned
-      - global-statement
-      - inconsistent-return-statements
-      - invalid-unary-operand-type
-      - keyword-arg-before-vararg
-      - logging-format-interpolation
       - missing-docstring
-      - nonexistent-operator
-      - pointless-statement
-      - redefined-argument-from-local
       - redefined-outer-name
-      - reimported
-      - single-string-used-for-slots
-      - superfluous-parens
-      - too-many-ancestors
-      - trailing-comma-tuple
-      - undefined-loop-variable
-      - unexpected-special-method-signature
-      - unnecessary-pass
-      - unused-variable
     known_third_party:
       - mpl_toolkits
       - pytest_allclose
@@ -134,7 +107,7 @@ docs_conf_py:
   intersphinx_mapping:
     scipy: 'https://docs.scipy.org/doc/scipy/reference'
     sklearn: 'https://scikit-learn.org/dev'
-  analytics_id: UA-41658423-2
+  tagmanager_id: GTM-KWCR2HN
   extensions:
     - nengo_sphinx_theme.ext.autoautosummary
     - nengo_sphinx_theme.ext.resolvedefaults
@@ -199,11 +172,15 @@ docs_conf_py:
       - nengo.neurons.RectifiedLinear
       - nengo.neurons.SpikingRectifiedLinear
       - nengo.neurons.Sigmoid
+      - nengo.neurons.Tanh
       - nengo.neurons.LIF
       - nengo.neurons.LIFRate
       - nengo.neurons.AdaptiveLIF
       - nengo.neurons.AdaptiveLIFRate
       - nengo.neurons.Izhikevich
+      - nengo.neurons.RegularSpiking
+      - nengo.neurons.PoissonSpiking
+      - nengo.neurons.StochasticSpiking
       - nengo.synapses.LinearFilter
       - nengo.synapses.Lowpass
       - nengo.synapses.Alpha
@@ -248,6 +225,8 @@ travis_yml:
       if: "branch =~ ^release-candidate-*"
     - dist: bionic
       python: 3.7
+    - dist: bionic
+      python: 3.8
   pypi_user: tbekolay
   deploy_dists:
     - sdist
@@ -280,7 +259,8 @@ ci_scripts:
       - matplotlib
   - template: deploy
 
-codecov_yml: {}
+codecov_yml:
+  abs_target: 100%
 
 pre_commit_config_yaml:
   exclude:

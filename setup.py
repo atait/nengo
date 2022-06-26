@@ -73,11 +73,21 @@ setup(
         "tests": tests_req,
     },
     python_requires=">=3.5",
-    package_data={"nengo": ["nengo-data/nengorc",],},
-    py_modules=["pytest_nengo",],
+    package_data={
+        "nengo": [
+            "nengo-data/nengorc",
+        ],
+    },
+    py_modules=[
+        "pytest_nengo",
+    ],
     entry_points={
-        "nengo.backends": ["reference = nengo:Simulator",],
-        "pytest11": ["nengo = pytest_nengo",],
+        "nengo.backends": [
+            "reference = nengo:Simulator",
+        ],
+        "pytest11": [
+            "nengo = pytest_nengo",
+        ],
     },
     classifiers=[
         "Development Status :: 5 - Production/Stable",
@@ -89,6 +99,7 @@ setup(
         "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
 )

@@ -21,7 +21,9 @@ def test_checked_call():
     def func2(a, b=0, **kwargs):
         return a + b
 
-    def func3(a, b=0, c=0, *args, **kwargs):
+    def func3(
+        a, b=0, c=0, *args, **kwargs
+    ):  # pylint: disable=keyword-arg-before-vararg
         return a + b + c + sum(args)
 
     func4 = lambda x=[0]: sum(x)
@@ -110,8 +112,8 @@ def test_groupby(hashable, force_list, rng):
 
 def test_timer():
     with Timer() as timer:
-        for i in range(1000):
-            2 + 2
+        for _ in range(1000):
+            _ = 2 + 2
     assert timer.duration > 0.0
     assert timer.duration < 1.0  # Pretty bad worst case
 
@@ -138,41 +140,39 @@ def test_weakkeydefaultdict():
     assert o not in d
 
     d[o] = "changed"
+    for index in d:
+        assert index == o
+    del index  # pylint: disable=undefined-loop-variable
     del o
     assert len(d) == 0
 
 
-def test_make_weakkeydict_from_dict():
-    o = C()
-    d = WeakKeyIDDictionary({o: 364})
-    assert d[o] == 364
+def test_weakkeyiddictionary_init():
+    obj = C()
+    val = 364
+
+    # construct from dictionary
+    d = WeakKeyIDDictionary({obj: val})
+    assert d[obj] == val
+
+    # construct from another WeakKeyIDDictionary
+    d2 = WeakKeyIDDictionary(d)
+    assert d2[obj] == val
 
 
-def test_make_weakkeydict_from_weakkeydict():
-    o = C()
-    d1 = WeakKeyIDDictionary({o: 364})
-    d2 = WeakKeyIDDictionary(d1)
-    assert d1[o] == 364
-    assert d2[o] == 364
-
-
-def test_weakkeydict_popitem(key1=C(), key2=C(), value1="v1", value2="v2"):
+def test_weakkeydict_popitem(key1=C(), key2=C(), val1="v1", val2="v2"):
     d = WeakKeyIDDictionary()
-    d[key1] = value1
-    d[key2] = value2
+    d[key1] = val1
+    d[key2] = val2
+
     assert len(d) == 2
-    k, v = d.popitem()
+    k1, v1 = d.popitem()
     assert len(d) == 1
-    if k is key1:
-        assert v is value1
-    else:
-        assert v is value2
-    k, v = d.popitem()
+    assert k1 in (key1, key2) and v1 is (val1 if k1 is key1 else val2)
+
+    k2, v2 = d.popitem()
     assert len(d) == 0
-    if k is key1:
-        assert v is value1
-    else:
-        assert v is value2
+    assert k2 is (key2 if k1 is key1 else key1) and v2 is (val1 if k2 is key1 else val2)
 
 
 def test_weakkeydict_setdefault(key=C(), value1="v1", value2="v2"):
@@ -195,17 +195,20 @@ def test_weakkeydict_update():
     in_d = {C(): 1, C(): 2, C(): 3}
     d = WeakKeyIDDictionary()
     d.update(in_d)
+
     assert len(d) == len(in_d)
     for k in d.keys():
         assert k in in_d, "mysterious new key appeared in weak dict"
         v = in_d.get(k)
-        assert v is d[k]
-        assert v is d.get(k)
-    for k in in_d.keys():
+        assert v is d[k] and v is d.get(k)
+    for k in in_d:
         assert k in d, "original key disappeared in weak dict"
         v = in_d[k]
-        assert v is d[k]
-        assert v is d.get(k)
+        assert v is d[k] and v is d.get(k)
+
+
+def test_weakkeyiddict_contains_none():
+    assert (None in WeakKeyIDDictionary()) is False
 
 
 def test_weakkeydict_delitem():
@@ -223,18 +226,19 @@ def test_weakkeydict_delitem():
 def test_weakkeydict_bad_delitem():
     d = WeakKeyIDDictionary()
     o = C()
+
     # An attempt to delete an object that isn't there should raise KeyError.
     with pytest.raises(KeyError):
         del d[o]
     with pytest.raises(KeyError):
-        d[o]
+        print(d[o])
 
-    # If a key isn't of a weakly referencable type, __getitem__ and
-    # __setitem__ raise TypeError.  __delitem__ should too.
-    with pytest.raises(TypeError):
+    # If a key isn't of a weakly referencable type, __getitem__ and __delitem__ raise
+    # keyerror, __setitem__ raises a TypeError
+    with pytest.raises(KeyError):
         del d[13]
-    with pytest.raises(TypeError):
-        d[13]
+    with pytest.raises(KeyError):
+        print(d[13])
     with pytest.raises(TypeError):
         d[13] = 13
 
@@ -267,3 +271,15 @@ def test_weakset():
     s.add(k)
     del k
     assert len(s) == 0
+
+
+def test_weakset_init():
+    k = C()
+
+    # init from a list
+    s = WeakSet([k])
+    assert k in s
+
+    # init from another weakset
+    s2 = WeakSet(s)
+    assert k in s2

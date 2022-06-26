@@ -549,7 +549,7 @@ class DotInc(Operator):
     Implements ``Y[...] += np.dot(A, X)``.
 
     .. note:: Currently, this only supports matrix-vector multiplies
-              for compatibility with Nengo OCL.
+              for compatibility with NengoOCL.
 
     Parameters
     ----------
@@ -659,7 +659,7 @@ class BsrDotInc(DotInc):
     .. note:: Requires SciPy.
 
     .. note:: Currently, this only supports matrix-vector multiplies
-              for compatibility with Nengo OCL.
+              for compatibility with NengoOCL.
 
     Parameters
     ----------
@@ -717,9 +717,9 @@ class BsrDotInc(DotInc):
         X = signals[self.X]
         A = signals[self.A]
         Y = signals[self.Y]
+        mat_A = self.bsr_matrix((A, self.indices, self.indptr))
 
         def step_dotinc():
-            mat_A = self.bsr_matrix((A, self.indices, self.indptr))
             inc = mat_A.dot(X)
             if self.reshape:
                 inc = inc.reshape(Y.shape)
@@ -825,10 +825,10 @@ class SimPyFunc(Operator):
 
                     output[...] = y
 
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as e:
                     raise SimulationError(
                         "Function %r returned a value "
                         "%r of invalid type %r" % (function_name(self.fn), y, type(y))
-                    )
+                    ) from e
 
         return step_simpyfunc

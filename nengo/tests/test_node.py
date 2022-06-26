@@ -188,6 +188,7 @@ def test_none(Simulator, seed):
     def input_function(t):
         if t < 0.005:
             return [1]
+        return None
 
     with model:
         u = nengo.Node(output=input_function)
@@ -326,7 +327,7 @@ def test_set_callable_output(Simulator):
         # function must return a scalar or vector, not matrix
         with pytest.raises(ValidationError):
             nengo.Node(lambda t: np.ones((2, 2)))
-        # variable length argument lists should be allowed (used in Nengo SPA)
+        # variable length argument lists should be allowed (used in NengoSPA)
         nengo.Node(lambda *args: [2.0], size_in=0, size_out=1)
         nengo.Node(lambda *args: [2.0], size_in=1, size_out=1)
 

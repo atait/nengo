@@ -10,11 +10,11 @@ try:
     from nengo.utils.ipython import export_py, iter_cells, load_notebook
 except ImportError as err:
 
-    def export_py(err=err, *args, **kwargs):
-        raise err
+    def export_py(*args, import_err=err, **kwargs):
+        raise import_err
 
-    def load_notebook(err=err, *args, **kwargs):
-        raise err
+    def load_notebook(*args, import_err=err, **kwargs):
+        raise import_err
 
 
 # Monkeypatch _pytest.capture.DontReadFromInput
@@ -29,30 +29,30 @@ _pytest.capture.DontReadFromInput.flush = lambda: None
 
 
 too_slow = [
-    "basal_ganglia",
-    "inhibitory_gating",
+    "basal-ganglia",
+    "inhibitory-gating",
     "izhikevich",
-    "learn_communication_channel",
-    "learn_product",
-    "learn_square",
-    "learn_unsupervised",
-    "lorenz_attractor",
-    "nef_algorithm",
-    "nef_summary",
-    "network_design",
-    "network_design_advanced",
+    "learn-communication-channel",
+    "learn-product",
+    "learn-square",
+    "learn-unsupervised",
+    "lorenz-attractor",
+    "nef-algorithm",
+    "nef-summary",
+    "network-design",
+    "network-design-advanced",
     "question",
-    "question_control",
-    "question_memory",
-    "spa_parser",
-    "spa_sequence",
-    "spa_sequence_routed",
+    "question-control",
+    "question-memory",
+    "spa-parser",
+    "spa-sequence",
+    "spa-sequence-routed",
 ]
 
 all_examples, slow_examples, fast_examples = [], [], []
 
 for subdir, _, files in os.walk(examples_dir):
-    if (os.path.sep + ".") in subdir:
+    if os.path.sep + "." in subdir:
         continue
     files = [f for f in files if f.endswith(".ipynb")]
     examples = [os.path.join(subdir, os.path.splitext(f)[0]) for f in files]
@@ -83,6 +83,7 @@ def assert_noexceptions(nb_file, tmpdir):
 @pytest.mark.example
 @pytest.mark.parametrize("nb_file", fast_examples)
 @pytest.mark.filterwarnings("ignore:Creating new attribute 'memory_location'")
+@pytest.mark.filterwarnings("ignore:Matplotlib is currently using agg")
 def test_fast_noexceptions(nb_file, tmpdir):
     """Ensure that no cells raise an exception."""
     pytest.importorskip("IPython", minversion="3.0")

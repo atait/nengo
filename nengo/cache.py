@@ -14,6 +14,18 @@ import warnings
 
 import numpy as np
 
+from nengo.dists import (
+    Choice,
+    CosineSimilarity,
+    Exponential,
+    Gaussian,
+    PDF,
+    Samples,
+    SqrtBeta,
+    SubvectorLength,
+    Uniform,
+    UniformHypersphere,
+)
 from nengo.exceptions import (
     CacheIOError,
     CacheIOWarning,
@@ -27,9 +39,13 @@ from nengo.neurons import (
     Izhikevich,
     LIF,
     LIFRate,
+    PoissonSpiking,
     RectifiedLinear,
+    RegularSpiking,
     Sigmoid,
     SpikingRectifiedLinear,
+    StochasticSpiking,
+    Tanh,
 )
 from nengo.rc import rc
 from nengo.solvers import (
@@ -108,6 +124,14 @@ def check_seq(tpl):
     return all(Fingerprint.supports(x) for x in tpl)
 
 
+def check_mapping(mapping):
+    """Check that all values in dict are fingerprintable."""
+    return all(
+        isinstance(key, str) and Fingerprint.supports(val)
+        for key, val in mapping.items()
+    )
+
+
 def check_attrs(obj):
     """Check that all attributes of ``obj`` are fingerprintable."""
     attrs = [getattr(obj, x) for x in dir(obj) if not x.startswith("_")]
@@ -176,19 +200,53 @@ class Fingerprint:
         Izhikevich,
         LIF,
         LIFRate,
+        PoissonSpiking,
         RectifiedLinear,
+        RegularSpiking,
         Sigmoid,
         SpikingRectifiedLinear,
+        StochasticSpiking,
+        Tanh,
+    )
+    DISTRIBUTIONS = (
+        Choice,
+        CosineSimilarity,
+        Exponential,
+        Gaussian,
+        PDF,
+        Samples,
+        SqrtBeta,
+        SubvectorLength,
+        Uniform,
+        UniformHypersphere,
     )
 
     WHITELIST = set(
-        (type(None), bool, float, complex, bytes, list, tuple, np.ndarray, int, str)
+        (
+            type(None),
+            bool,
+            float,
+            complex,
+            bytes,
+            list,
+            tuple,
+            np.ndarray,
+            int,
+            str,
+            dict,
+        )
         + SOLVERS
         + LSTSQ_METHODS
         + NEURON_TYPES
+        + DISTRIBUTIONS
     )
     CHECKS = dict(
-        [(np.ndarray, check_dtype), (tuple, check_seq), (list, check_seq)]
+        [
+            (np.ndarray, check_dtype),
+            (tuple, check_seq),
+            (list, check_seq),
+            (dict, check_mapping),
+        ]
         + [(_x, check_attrs) for _x in SOLVERS + LSTSQ_METHODS + NEURON_TYPES]
     )
 
@@ -202,7 +260,7 @@ class Fingerprint:
         try:
             self.fingerprint.update(pickle.dumps(obj, pickle.HIGHEST_PROTOCOL))
         except Exception as err:
-            raise FingerprintError(str(err))
+            raise FingerprintError() from err
 
     def __str__(self):
         return self.fingerprint.hexdigest()
@@ -312,7 +370,7 @@ class CacheIndex:
     def __getitem__(self, key):
         return self._index[key]
 
-    def __setitem__(self, key):
+    def __setitem__(self, key, value):
         raise TypeError("Index is readonly.")
 
     def __delitem__(self, key):
@@ -404,7 +462,7 @@ class WriteableCacheIndex(CacheIndex):
         with self._lock:
             try:
                 self._load_index_file()
-            except Exception:
+            except (FileNotFoundError, EOFError):
                 logger.exception("Decoder cache index corrupted. Reinitializing cache.")
                 # If we can't load the index file, the cache is corrupted,
                 # so we invalidate it (delete all files in the cache)
@@ -546,7 +604,7 @@ class DecoderCache:
                     "Decoder cache could not acquire lock and was "
                     "set to readonly mode."
                 )
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             self.readonly = True
             self._index = None
             logger.debug("Could not acquire lock because: %s", e)
@@ -558,8 +616,8 @@ class DecoderCache:
         self._in_context = False
         self._close_fd()
         if self._index is not None:
-            rval = self._index.__exit__(exc_type, exc_value, traceback)
-            return rval
+            return self._index.__exit__(exc_type, exc_value, traceback)
+        return None
 
     @staticmethod
     def get_default_dir():
@@ -569,7 +627,7 @@ class DecoderCache:
         -------
         str
         """
-        return rc.get("decoder_cache", "path")
+        return rc["decoder_cache"]["path"]
 
     def _close_fd(self):
         if self._fd is not None:
@@ -640,14 +698,14 @@ class DecoderCache:
             return
 
         if limit is None:
-            limit = rc.get("decoder_cache", "size")
+            limit = rc["decoder_cache"]["size"]
         if isinstance(limit, str):
             limit = human2bytes(limit)
 
         self._close_fd()
 
         fileinfo = []
-        excess = -limit
+        excess = -1 * limit
         for path in self.get_files():
             stat = safe_stat(path)
             if stat is not None:
@@ -714,7 +772,7 @@ class DecoderCache:
                 with open(path, "rb") as f:
                     f.seek(start)
                     info, decoders = nco.read(f)
-            except Exception as err:
+            except (KeyError, FileNotFoundError, struct.error) as err:
                 if isinstance(err, KeyError):
                     logger.debug("Cache miss [%s].", key)
                 else:
@@ -791,8 +849,8 @@ class NoDecoderCache:
 
 def get_default_decoder_cache():
     """Get default decoder implementation based on config settings."""
-    if rc.getboolean("decoder_cache", "enabled"):
-        decoder_cache = DecoderCache(rc.getboolean("decoder_cache", "readonly"))
+    if rc["decoder_cache"].getboolean("enabled"):
+        decoder_cache = DecoderCache(rc["decoder_cache"].getboolean("readonly"))
     else:
         decoder_cache = NoDecoderCache()
     return decoder_cache

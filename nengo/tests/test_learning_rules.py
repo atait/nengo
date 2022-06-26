@@ -6,7 +6,7 @@ from nengo.builder import Builder
 from nengo.builder.operator import Reset, Copy
 from nengo.builder.signal import Signal
 from nengo.dists import UniformHypersphere
-from nengo.exceptions import ValidationError
+from nengo.exceptions import BuildError, ValidationError
 from nengo.learning_rules import LearningRuleTypeParam, PES, BCM, Oja, Voja
 from nengo.processes import WhiteSignal
 from nengo.synapses import Alpha, Lowpass
@@ -18,7 +18,7 @@ def best_weights(weight_data):
 
 def _test_pes(
     Simulator,
-    nl,
+    AnyNeuronType,
     plt,
     seed,
     allclose,
@@ -35,7 +35,7 @@ def _test_pes(
     vout = np.array(vin) if vout is None else vout
 
     with nengo.Network(seed=seed) as model:
-        model.config[nengo.Ensemble].neuron_type = nl()
+        model.config[nengo.Ensemble].neuron_type = AnyNeuronType()
 
         stim = nengo.Node(output=vin)
         target = nengo.Node(output=vout)
@@ -84,12 +84,14 @@ def _test_pes(
     tend = t > 0.4
     assert allclose(sim.data[post_p][tend], vout, atol=0.05)
     assert allclose(sim.data[error_p][tend], 0, atol=0.05)
-    assert not allclose(weights[0], weights[-1], atol=1e-5, record_rmse=False)
+    assert not allclose(
+        weights[0], weights[-1], atol=1e-5, record_rmse=False, print_fail=0
+    )
 
 
-def test_pes_ens_ens(Simulator, nl_nodirect, plt, seed, allclose):
+def test_pes_ens_ens(Simulator, NonDirectNeuronType, plt, seed, allclose):
     function = lambda x: [x[1], x[0]]
-    _test_pes(Simulator, nl_nodirect, plt, seed, allclose, function=function)
+    _test_pes(Simulator, NonDirectNeuronType, plt, seed, allclose, function=function)
 
 
 def test_pes_weight_solver(Simulator, plt, seed, allclose):
@@ -284,6 +286,21 @@ def test_pes_cycle(Simulator):
         pass
 
 
+def test_pes_adv_idx(Simulator):
+    with nengo.Network() as net:
+        pre = nengo.Ensemble(10, 1)
+        post = nengo.Ensemble(10, 1)
+        nengo.Connection(
+            pre.neurons,
+            post.neurons[[0, 2, 3]],
+            learning_rule_type=nengo.PES(),
+            transform=np.ones((3, pre.n_neurons)),
+        )
+
+    with pytest.raises(BuildError, match="does not support advanced indexing"):
+        Simulator(net)
+
+
 @pytest.mark.parametrize(
     "rule_type, solver",
     [
@@ -332,7 +349,7 @@ def test_unsupervised(Simulator, rule_type, solver, seed, rng, plt, allclose):
     plt.ylabel("Weights")
 
     assert not allclose(
-        sim.data[weights_p][0], sim.data[weights_p][-1], record_rmse=False
+        sim.data[weights_p][0], sim.data[weights_p][-1], record_rmse=False, print_fail=0
     )
 
 
@@ -393,7 +410,10 @@ def test_dt_dependence(Simulator, plt, learning_rule, seed, rng, allclose):
 
     assert allclose(trans_data[0], trans_data[1], atol=3e-3)
     assert not allclose(
-        sim.data[m.weights_p][0], sim.data[m.weights_p][-1], record_rmse=False
+        sim.data[m.weights_p][0],
+        sim.data[m.weights_p][-1],
+        record_rmse=False,
+        print_fail=0,
     )
 
 
@@ -479,7 +499,7 @@ def test_learningrule_attr(seed):
             check_rule(c3.learning_rule[key], c3, r3[key])
 
 
-def test_voja_encoders(Simulator, nl_nodirect, rng, seed, allclose):
+def test_voja_encoders(Simulator, PositiveNeuronType, rng, seed, allclose):
     """Tests that voja changes active encoders to the input."""
     n = 200
     learned_vector = np.asarray([0.3, -0.4, 0.6])
@@ -496,7 +516,7 @@ def test_voja_encoders(Simulator, nl_nodirect, rng, seed, allclose):
 
     m = nengo.Network(seed=seed)
     with m:
-        m.config[nengo.Ensemble].neuron_type = nl_nodirect()
+        m.config[nengo.Ensemble].neuron_type = PositiveNeuronType()
         u = nengo.Node(output=learned_vector)
         x = nengo.Ensemble(
             n,
@@ -542,7 +562,7 @@ def test_voja_encoders(Simulator, nl_nodirect, rng, seed, allclose):
     assert allclose(sim.data[p_enc], sim.data[p_enc_ens])
 
 
-def test_voja_modulate(Simulator, nl_nodirect, seed, allclose):
+def test_voja_modulate(Simulator, NonDirectNeuronType, seed, allclose):
     """Tests that voja's rule can be modulated on/off."""
     n = 200
     learned_vector = np.asarray([0.5])
@@ -553,7 +573,7 @@ def test_voja_modulate(Simulator, nl_nodirect, seed, allclose):
 
     m = nengo.Network(seed=seed)
     with m:
-        m.config[nengo.Ensemble].neuron_type = nl_nodirect()
+        m.config[nengo.Ensemble].neuron_type = NonDirectNeuronType()
         control = nengo.Node(output=control_signal)
         u = nengo.Node(output=learned_vector)
         x = nengo.Ensemble(n, dimensions=len(learned_vector))
@@ -574,7 +594,9 @@ def test_voja_modulate(Simulator, nl_nodirect, seed, allclose):
 
     # Check that encoders changed during first 0.5s
     i = np.where(tend)[0][0]  # first time point after changeover
-    assert not allclose(sim.data[p_enc][0], sim.data[p_enc][i], record_rmse=False)
+    assert not allclose(
+        sim.data[p_enc][0], sim.data[p_enc][i], record_rmse=False, print_fail=0
+    )
 
 
 def test_frozen():
@@ -620,13 +642,14 @@ def test_custom_type(Simulator, allclose):
         def __init__(self):
             super().__init__(1.0, size_in=3)
 
-    @Builder.register(TestRule)
     def build_test_rule(model, _, rule):
         error = Signal(np.zeros(rule.connection.size_in))
         model.add_op(Reset(error))
         model.sig[rule]["in"] = error[: rule.size_in]
 
         model.add_op(Copy(error, model.sig[rule]["delta"]))
+
+    Builder.register(TestRule)(build_test_rule)
 
     with nengo.Network() as net:
         a = nengo.Ensemble(10, 1)
@@ -706,3 +729,33 @@ def test_null_error():
 
         # works with encoder learning rules (since they don't require a transform)
         nengo.Connection(a.neurons, b, learning_rule_type=Voja(), transform=None)
+
+
+def test_encoder_learning_undecoded_error(Simulator):
+    with nengo.Network() as net:
+        nengo.Connection(
+            nengo.Ensemble(2, 2),
+            nengo.Ensemble(2, 2),
+            solver=nengo.solvers.LstsqL2(weights=True),
+            learning_rule_type=nengo.Voja(),
+        )
+
+    with pytest.raises(ValueError, match="connection must be decoded.*encoder learn"):
+        with Simulator(net):
+            pass
+
+
+def test_bad_learning_rule_modifies(Simulator):
+    class CustomRule(nengo.learning_rules.LearningRuleType):
+        # start with a valid value, then switch once we pass API check
+        modifies = "encoders"
+
+    with nengo.Network() as net:
+        nengo.Connection(
+            nengo.Ensemble(2, 2), nengo.Ensemble(2, 2), learning_rule_type=CustomRule()
+        )
+
+    CustomRule.modifies = "badvalue"  # switch to invalid valie
+    with pytest.raises(BuildError, match="Unknown target 'badvalue'"):
+        with Simulator(net):
+            pass

@@ -15,7 +15,7 @@ import inspect
 import sys
 
 from nengo.exceptions import ConfigError, ValidationError
-from nengo.params import Default, is_param, iter_params
+from nengo.params import Default, is_param
 from nengo.rc import rc
 from nengo.utils.threading import ThreadLocalStack
 
@@ -214,15 +214,7 @@ class InstanceParams:
             self._clsparams.get_param(key).__set__(self, value)
 
     def __getstate__(self):
-        state = {}
-
-        for key in iter_params(self._configures):
-            param = self._clsparams.get_param(key)
-            if self in param:
-                state[key] = param.__get__(self, type(self))
-
-        state.update(self.__dict__)
-        return state
+        return dict(self.__dict__)
 
     def __setstate__(self, state):
         for k, v in state.items():
@@ -484,11 +476,11 @@ class SupportDefaultsMixin:
         if val is Default:
             val = Config.default(type(self), name)
 
-        if rc.getboolean("exceptions", "simplified"):
+        if rc["exceptions"].getboolean("simplified"):
             try:
                 super().__setattr__(name, val)
-            except ValidationError:
+            except ValidationError as e:
                 exc_info = sys.exc_info()
-                raise exc_info[1].with_traceback(None)
+                raise exc_info[1].with_traceback(None) from e
         else:
             super().__setattr__(name, val)

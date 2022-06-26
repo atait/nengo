@@ -65,8 +65,14 @@ class SimProcess(Operator):
         else:
             raise ValueError("Unrecognized mode %r" % mode)
 
-        self.state = {} if state is None else state
-        self.updates.extend(self.state.values())
+        self.state_idxs = {}
+        if state is not None:
+            for name, sig in state.items():
+                # The signals actually stored in `self.updates` can be modified by the
+                # optimizer. To allow this possibility, we store the index of the
+                # signal in the updates list instead of storing the signal itself.
+                self.state_idxs[name] = len(self.updates)
+                self.updates.append(sig)
 
     @property
     def input(self):
@@ -74,14 +80,16 @@ class SimProcess(Operator):
 
     @property
     def output(self):
-        if len(self.updates) <= len(self.incs) <= len(self.sets) <= 0:
-            return None
-        elif self.mode == "update":
+        if self.mode == "update":
             return self.updates[0]
-        elif self.mode == "inc":
+        if self.mode == "inc":
             return self.incs[0]
-        elif self.mode == "set":
-            return self.sets[0]
+        assert self.mode == "set"
+        return self.sets[0]
+
+    @property
+    def state(self):
+        return {key: self.updates[idx] for key, idx in self.state_idxs.items()}
 
     @property
     def t(self):

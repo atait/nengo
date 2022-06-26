@@ -6,20 +6,21 @@ import pytest
 
 import nengo
 from nengo import (
+    BCM,
+    LIF,
+    PES,
+    RLS,
     AdaptiveLIF,
     AdaptiveLIFRate,
     Alpha,
-    BCM,
     Convolution,
     Dense,
     Direct,
     Izhikevich,
-    LIF,
     LIFRate,
     LinearFilter,
     Lowpass,
     Oja,
-    PES,
     RectifiedLinear,
     Sigmoid,
     Sparse,
@@ -27,7 +28,7 @@ from nengo import (
     Tanh,
     Voja,
 )
-from nengo.builder.learning_rules import SimBCM, SimOja, SimPES
+from nengo.builder.learning_rules import SimBCM, SimOja, SimPES, SimRLS, SimVoja
 from nengo.builder.neurons import SimNeurons
 from nengo.builder.operator import (
     Copy,
@@ -40,12 +41,13 @@ from nengo.builder.operator import (
 from nengo.builder.processes import SimProcess
 from nengo.builder.signal import Signal
 from nengo.dists import (
+    PDF,
     Choice,
     CosineSimilarity,
     Exponential,
     Gaussian,
-    PDF,
     Samples,
+    ScatteredHypersphere,
     SqrtBeta,
     SubvectorLength,
     Uniform,
@@ -80,6 +82,8 @@ def check_init_args(cls, args):
 
 def check_repr(obj):
     """Tests that repr gives back what is needed to create the object."""
+    assert not isinstance(obj, str), "Passing a string doesn't test `repr(obj)`"
+
     # some reprs need these in the local namespace
     array = np.array
     int64 = np.int64
@@ -100,6 +104,7 @@ def test_core_objects():
 
         c1 = nengo.Connection(a, b)
         c2 = nengo.Connection(a, b, function=np.square)
+        c3 = nengo.Connection(a, b, learning_rule_type=nengo.PES(), label="c3")
 
         n1 = nengo.Node(output=np.sin)
         n2 = nengo.Node(output=np.cos, label="n2")
@@ -109,31 +114,37 @@ def test_core_objects():
 
     # Ensemble
     assert fnmatch(repr(a), "<Ensemble (unlabeled) at 0x*>")
-    assert fnmatch(repr(b), '<Ensemble "b" at 0x*>')
+    assert fnmatch(repr(b), "<Ensemble 'b' at 0x*>")
 
     # Probe
     assert fnmatch(
         repr(ap), "<Probe at 0x* of 'decoded_output' of <Ensemble (unlabeled) at 0x*>>"
     )
-    assert fnmatch(repr(bp), "<Probe at 0x* of 'decoded_output' of <Ensemble \"b\">>")
+    assert fnmatch(repr(bp), "<Probe at 0x* of 'decoded_output' of <Ensemble 'b'>>")
 
     # Connection
     assert fnmatch(
         repr(c1),
-        '<Connection at 0x* from <Ensemble (unlabeled) at 0x*> to <Ensemble "b">>',
+        "<Connection at 0x* from <Ensemble (unlabeled) at 0x*> to <Ensemble 'b'>>",
     )
     assert fnmatch(
         repr(c2),
-        '<Connection at 0x* from <Ensemble (unlabeled) at 0x*> to <Ensemble "b"> '
+        "<Connection at 0x* from <Ensemble (unlabeled) at 0x*> to <Ensemble 'b'> "
         "computing 'square'>",
+    )
+    assert fnmatch(repr(c3), "<Connection at 0x* c3>")
+
+    assert fnmatch(
+        repr(c3.learning_rule),
+        "<LearningRule at 0x* modifying <Connection at 0x* c3> with type PES()>",
     )
 
     # Node
     assert fnmatch(repr(n1), "<Node (unlabeled) at 0x*>")
-    assert fnmatch(repr(n2), '<Node "n2" at 0x*>')
+    assert fnmatch(repr(n2), "<Node 'n2' at 0x*>")
 
     # Neurons
-    assert fnmatch(repr(b.neurons), '<Neurons at 0x* of <Ensemble "b" at 0x*>>')
+    assert fnmatch(repr(b.neurons), "<Neurons at 0x* of <Ensemble 'b' at 0x*>>")
 
     # ObjView
     assert fnmatch(repr(a[:1]), "<Ensemble (unlabeled) at 0x*>[[]:1[]]")
@@ -293,7 +304,7 @@ def test_learning_rule_types():
         BCM, ["learning_rate", "pre_synapse", "post_synapse", "theta_synapse"]
     )
     check_repr(
-        "BCM(learning_rate=0.1, pre_synapse=0.2, post_synapse=0.3, theta_synapse=0.4)"
+        BCM(learning_rate=0.1, pre_synapse=0.2, post_synapse=0.3, theta_synapse=0.4)
     )
     assert repr(BCM()) == "BCM()"
     assert repr(
@@ -305,8 +316,12 @@ def test_learning_rule_types():
 
     check_init_args(Oja, ["learning_rate", "pre_synapse", "post_synapse", "beta"])
     check_repr(
-        "Oja(learning_rate=0.1, pre_synapse=Lowpass(tau=0.2),"
-        "post_synapse=Lowpass(tau=0.3), beta=0.4)"
+        Oja(
+            learning_rate=0.1,
+            pre_synapse=Lowpass(tau=0.2),
+            post_synapse=Lowpass(tau=0.3),
+            beta=0.4,
+        )
     )
     assert repr(Oja()) == "Oja()"
     assert repr(
@@ -322,6 +337,15 @@ def test_learning_rule_types():
     assert (
         repr(Voja(learning_rate=0.1, post_synapse=0.2))
         == "Voja(learning_rate=0.1, post_synapse=Lowpass(tau=0.2))"
+    )
+
+    check_init_args(RLS, ["learning_rate", "pre_synapse"])
+    check_repr(RLS(2.4e-3))
+    check_repr(RLS(learning_rate=0.1, pre_synapse=Alpha(tau=0.2)))
+    assert repr(RLS()) == "RLS()"
+    assert (
+        repr(RLS(learning_rate=0.1, pre_synapse=0.2))
+        == "RLS(learning_rate=0.1, pre_synapse=Lowpass(tau=0.2))"
     )
 
 
@@ -354,6 +378,23 @@ def test_distributions():
     check_repr(UniformHypersphere(min_magnitude=0.3))
     assert repr(UniformHypersphere()) == "UniformHypersphere()"
     assert repr(UniformHypersphere(surface=True)) == "UniformHypersphere(surface=True)"
+
+    check_init_args(
+        ScatteredHypersphere, ["surface", "min_magnitude", "base", "method"]
+    )
+    check_repr(ScatteredHypersphere())
+    check_repr(ScatteredHypersphere(surface=True))
+    check_repr(ScatteredHypersphere(min_magnitude=0.3))
+    check_repr(ScatteredHypersphere(base=Uniform(0, 1)))
+    check_repr(ScatteredHypersphere(method="tfww"))
+    assert repr(ScatteredHypersphere()) == "ScatteredHypersphere()"
+    assert (
+        repr(ScatteredHypersphere(surface=True)) == "ScatteredHypersphere(surface=True)"
+    )
+    assert (
+        repr(ScatteredHypersphere(base=Uniform(0, 1), method="tfww"))
+        == "ScatteredHypersphere(base=Uniform(low=0, high=1), method='tfww')"
+    )
 
     check_init_args(Choice, ["options", "weights"])
     check_repr(Choice([3, 2, 1]))
@@ -454,7 +495,7 @@ def test_piecewise():
     for interpolation in ("linear", "nearest", "slinear", "quadratic", "cubic"):
         assert repr(Piecewise({1: 0.1, 2: 0.2, 3: 0.3}, interpolation)) == (
             "Piecewise(data={1: array([0.1]), 2: array([0.2]), 3: array([0.3])}, "
-            "interpolation=%r)" % interpolation
+            f"interpolation='{interpolation}')"
         )
 
 
@@ -581,7 +622,7 @@ def test_transforms():
     check_init_args(NoTransform, ["size_in"])
     check_repr(NoTransform(size_in=1))
     for dimensions in range(2):
-        assert repr(NoTransform(dimensions)) == "NoTransform(size_in=%d)" % dimensions
+        assert repr(NoTransform(dimensions)) == f"NoTransform(size_in={dimensions})"
 
 
 def test_signals():
@@ -619,6 +660,16 @@ def test_operators():
     assert fnmatch(repr(SimOja(sig, sig, sig, sig, 0.1, 1.0)), "<SimOja at 0x*>")
     assert fnmatch(
         repr(SimOja(sig, sig, sig, sig, 0.1, 1.0, tag="tag")), "<SimOja 'tag' at 0x*>"
+    )
+    assert fnmatch(repr(SimVoja(sig, sig, sig, sig, 1.0, sig, 1.0)), "<SimVoja at 0x*>")
+    assert fnmatch(
+        repr(SimVoja(sig, sig, sig, sig, 0.1, sig, 1.0, tag="tag")),
+        "<SimVoja 'tag' at 0x*>",
+    )
+    assert fnmatch(repr(SimRLS(sig, sig, sig, sig)), "<SimRLS at 0x*>")
+    assert fnmatch(
+        repr(SimRLS(sig, sig, sig, sig, tag="tag")),
+        "<SimRLS 'tag' at 0x*>",
     )
     assert fnmatch(repr(SimNeurons(LIF(), sig, {"sig": sig})), "<SimNeurons at 0x*>")
     assert fnmatch(

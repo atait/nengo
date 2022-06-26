@@ -19,8 +19,37 @@ Release history
    - Removed
    - Fixed
 
-3.1.0 (unreleased)
+3.2.0 (unreleased)
 ==================
+
+**Added**
+
+- Added official support for Python 3.9. (`#1660`_)
+
+**Fixed**
+
+- Operator graph step order will now be deterministic. (`#1654`_)
+
+**Removed**
+
+- Removed support for Python 3.5 (which reached its end of life in
+  September 2020). (`#1649`_)
+- Removed ``nengo.utils.graphs.graph`` (this was a small utility function for building
+  graphs that was only used in tests). (`#1654`_)
+- Removed ``simulator.ProbeDict`` alias; this was previously renamed to
+  ``simulator.SimulationData``. (`#1649`_)
+
+**Fixed**
+
+- Fixed a bug with a problematic cache index breaking decoder solvers. The solver now
+  avoids using the cache, rather than crashing. (`#1649`_)
+
+.. _#1649: https://github.com/nengo/nengo/pull/1649
+.. _#1654: https://github.com/nengo/nengo/pull/1654
+.. _#1660: https://github.com/nengo/nengo/pull/1660
+
+3.1.0 (November 17, 2020)
+=========================
 
 **Added**
 
@@ -46,6 +75,14 @@ Release history
   as are commonly used to match biological spiking statistics. (`#1609`_)
 - Added the ``PositiveNeuronType`` test argument to run tests on all neuron types
   for which ``negative`` is not ``True``. (`#1609`_)
+- Added the ``QuasirandomSequence`` distribution, which is similar to
+  ``Uniform`` but spreads points across the space evenly. (`#1611`_)
+- Added the ``ScatteredHypersphere`` distribution, which is similar to
+  ``UniformHypersphere`` but spreads points across the space more evenly. (`#1611`_)
+- Added the ``RLS`` (recursive least-squares) learning rule, which is an online
+  version of the least-squares method typically used for offline decoder-solving.
+  (`#1611`_, `example <learn-product_>`__)
+- Added the ``SimProbe`` operator, which marks a signal as being probed. (`#1653`_)
 
 **Changed**
 
@@ -74,11 +111,18 @@ Release history
   same effects as solvers with ``weights=False``, and a warning will be raised.
   (`#1626 <https://github.com/nengo/nengo/pull/1626>`__)
 - Various improvements to simulation speed. (`#1629`_)
+- ``EnsembleArray`` now raises an error if ``add_output`` would
+  overwrite an existing attribute. (`#1611`_)
+- The ``encoders`` and ``eval_points`` of ``Ensemble`` are now sampled from
+  ``ScatteredHypersphere`` by default. (`#1611`_)
 
 **Deprecated**
 
 - ``NeuronType.step`` replaces the ``NeuronType.step_math`` method,
   which will be removed in Nengo 4.0.0. (`#1609`_)
+- ``Connection.is_decoded`` is deprecated, as the definition of whether a Connection
+  is decoded or not was ambiguous. Instead we recommend directly checking the pre/post
+  objects for the properties of interest. (`#1640`_)
 
 **Fixed**
 
@@ -95,12 +139,24 @@ Release history
 - Fixed a bug in the validation of ``Choice`` distributions. (`#1630`_)
 - Fixed a bug where a ``Signal`` did not register as sharing memory with itself.
   (`#1627`_)
+- Fixed a shape error when applying PES learning to a neuron-to-neuron connection with a
+  slice on the post-synaptic neurons. (`#1640`_)
+- Fixed a shape error when applying PES learning to a neuron->ensemble connection with
+  a weight solver. (`#1640`_)
+- Fixed a shape error when applying PES learning to an ensemble->neuron connection.
+  (`#1640`_)
+- Fixed a shape error when applying PES learning with a slice on the pre-synaptic
+  object. (`#1640`_)
 
 .. _#1609: https://github.com/nengo/nengo/pull/1609
+.. _#1611: https://github.com/nengo/nengo/pull/1611
 .. _#1627: https://github.com/nengo/nengo/pull/1627
 .. _#1628: https://github.com/nengo/nengo/pull/1628
 .. _#1629: https://github.com/nengo/nengo/pull/1629
 .. _#1630: https://github.com/nengo/nengo/pull/1630
+.. _#1640: https://github.com/nengo/nengo/pull/1640
+.. _#1653: https://github.com/nengo/nengo/pull/1653
+.. _learn-product: https://www.nengo.ai/nengo/examples/learning/learn-product.html
 
 3.0.0 (November 18, 2019)
 =========================

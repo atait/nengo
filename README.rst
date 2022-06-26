@@ -1,18 +1,10 @@
 .. image:: https://img.shields.io/pypi/v/nengo.svg
-  :target: https://pypi.python.org/pypi/nengo
+  :target: https://pypi.org/project/nengo
   :alt: Latest PyPI version
 
 .. image:: https://img.shields.io/pypi/pyversions/nengo.svg
-  :target: https://pypi.python.org/pypi/nengo
+  :target: https://pypi.org/project/nengo
   :alt: Python versions
-
-.. image:: https://img.shields.io/travis/nengo/nengo/master.svg
-  :target: https://travis-ci.org/nengo/nengo
-  :alt: Travis-CI build status
-
-.. image:: https://ci.appveyor.com/api/projects/status/8ou34p2bgqf2qjqh/branch/master?svg=true
-  :target: https://ci.appveyor.com/project/nengo/nengo
-  :alt: AppVeyor build status
 
 .. image:: https://img.shields.io/codecov/c/github/nengo/nengo/master.svg
   :target: https://codecov.io/gh/nengo/nengo/branch/master
@@ -62,8 +54,9 @@ If you'd like to install Nengo from source,
 please read the `developer installation instructions
 <https://www.nengo.ai/nengo/contributing.html#developer-installation>`_.
 
-Nengo is tested to work on Python 3.5 and above.
+Nengo is tested to work on Python 3.6 and above.
 Python 2.7 and Python 3.4 were supported up to and including Nengo 2.8.0.
+Python 3.5 was supported up to and including Nengo 3.1.
 
 Examples
 ========

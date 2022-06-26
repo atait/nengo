@@ -1,8 +1,8 @@
 import logging
 import pickle
-import pkg_resources
 
 import numpy as np
+import pkg_resources
 import pytest
 
 import nengo
@@ -11,8 +11,8 @@ from nengo.builder import Model
 from nengo.builder.ensemble import BuiltEnsemble
 from nengo.builder.operator import DotInc
 from nengo.builder.signal import Signal
-from nengo.exceptions import SimulatorClosed, ValidationError
-from nengo.rc import rc, RC_DEFAULTS
+from nengo.exceptions import ReadonlyError, SimulatorClosed, ValidationError
+from nengo.rc import RC_DEFAULTS, rc
 from nengo.utils.progress import ProgressBar
 
 
@@ -42,8 +42,8 @@ def test_dtype(Simulator, request, seed, bits):
         lambda: rc.set("precision", "bits", str(RC_DEFAULTS["precision"]["bits"]))
     )
 
-    float_dtype = np.dtype(getattr(np, "float%s" % bits))
-    int_dtype = np.dtype(getattr(np, "int%s" % bits))
+    float_dtype = np.dtype(getattr(np, f"float{bits}"))
+    int_dtype = np.dtype(getattr(np, f"int{bits}"))
 
     with nengo.Network() as model:
         u = nengo.Node([0.5, -0.4])
@@ -56,7 +56,7 @@ def test_dtype(Simulator, request, seed, bits):
         sim.step()
 
         for k, v in sim.signals.items():
-            assert v.dtype in (float_dtype, int_dtype), "Signal '%s' wrong dtype" % k
+            assert v.dtype in (float_dtype, int_dtype), f"Signal '{k}' wrong dtype"
 
         objs = (obj for obj in model.all_objects if sim.data[obj] is not None)
         for obj in objs:
@@ -93,6 +93,14 @@ def test_simulation_data():
     data = nengo.simulator.SimulationData(raw)
     assert np.all(data["scalar"] == np.asarray(raw["scalar"]))
     assert np.all(data.get("list") == np.asarray(raw.get("list")))
+    assert tuple(data) == tuple(raw)  # this tests __iter__
+    assert len(data) == len(raw)
+    assert repr(data) == repr(raw)
+    assert str(data) == str(raw)
+
+    assert len(data._cache) > 0
+    data.reset()
+    assert len(data._cache) == 0
 
 
 def test_simulation_data_with_repeated_simulator_runs(Simulator):
@@ -164,7 +172,7 @@ def test_warn_on_opensim_del(Simulator):
         nengo.Ensemble(10, 1)
 
     sim = Simulator(net)
-    with pytest.warns(ResourceWarning):
+    with pytest.warns(ResourceWarning, match="Simulator.*deallocated while open"):
         sim.__del__()
     sim.close()
 
@@ -409,3 +417,9 @@ def test_pickle_optimize(caplog, seed):
     unpickled.close()
 
     assert np.all(before == after)
+
+
+def test_dt_readonly():
+    with nengo.Simulator(nengo.Network()) as sim:
+        with pytest.raises(ReadonlyError, match="dt"):
+            sim.dt = 0.05

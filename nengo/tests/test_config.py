@@ -1,4 +1,5 @@
 import pickle
+from fnmatch import fnmatch
 
 import pytest
 
@@ -298,14 +299,9 @@ def test_classparams_str_repr():
 def test_config_repr():
     """tests the repr function in Config class"""
     model = nengo.Network()
-    r = repr(model.config)  # == "<Config(Connection, Ensemble, Node, Probe)>
-    assert (  # Python <= 3.5 has types in any order
-        r.startswith("<Config(")
-        and r.endswith(")>")
-        and "Connection" in r
-        and "Ensemble" in r
-        and "Node" in r
-        and "Probe" in r
+    assert fnmatch(
+        repr(model.config),
+        "<Config at 0x* configuring (Connection, Ensemble, Node, Probe)>",
     )
 
 
@@ -333,8 +329,8 @@ def test_instanceparams_str_repr():
         model.config[nengo.Ensemble].set_param("prm", nengo.params.Parameter("prm"))
         model.config[a].prm = "val"
 
-    assert str(model.config[a]) == 'Parameters set for <Ensemble "a">:\n  prm: val'
-    assert repr(model.config[a]) == '<InstanceParams[<Ensemble "a">]{prm: val}>'
+    assert str(model.config[a]) == "Parameters set for <Ensemble 'a'>:\n  prm: val"
+    assert repr(model.config[a]) == "<InstanceParams[<Ensemble 'a'>]{prm: val}>"
 
 
 def test_instanceparams_contains():

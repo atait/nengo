@@ -39,8 +39,8 @@ import struct
 
 import numpy as np
 
-from .cache import byte_align
 from ..exceptions import CacheIOError
+from .cache import byte_align
 
 
 class Subfile:
@@ -101,7 +101,7 @@ class Subfile:
 
 MAGIC_STRING = "NCO".encode("utf-8")
 SUPPORTED_PROTOCOLS = [0]
-HEADER_FORMAT = "@{}sBLLLL".format(len(MAGIC_STRING))
+HEADER_FORMAT = f"@{len(MAGIC_STRING)}sBLLLL"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 ALIGNMENT = 16
 
@@ -159,7 +159,7 @@ def read(fileobj):
     if magic != MAGIC_STRING:
         raise CacheIOError("Not a Nengo cache object file.")
     if version not in SUPPORTED_PROTOCOLS:
-        raise CacheIOError("NCO protocol version {} is not supported.".format(version))
+        raise CacheIOError(f"NCO protocol version {version} is not supported.")
 
     metadata = pickle.load(Subfile(fileobj, pickle_start, pickle_end))
     array = np.load(Subfile(fileobj, array_start, array_end))

@@ -59,8 +59,8 @@ Commented lines show the default values for each setting.
 
 """
 
-from configparser import ConfigParser, DEFAULTSECT
 import logging
+from configparser import DEFAULTSECT, ConfigParser
 
 import numpy as np
 
@@ -129,12 +129,12 @@ class _RC(ConfigParser):  # pylint: disable=too-many-ancestors
     @property
     def float_dtype(self):
         bits = self.get("precision", "bits")
-        return np.dtype("float%s" % bits)
+        return np.dtype(f"float{bits}")
 
     @property
     def int_dtype(self):
         bits = self.get("precision", "bits")
-        return np.dtype("int%s" % bits)
+        return np.dtype(f"int{bits}")
 
     def _clear(self):
         self.remove_section(DEFAULTSECT)

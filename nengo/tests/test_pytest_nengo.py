@@ -9,24 +9,22 @@ def test_unsupported(xfail, testdir):
 
     # Set up a dummy nengo package directory, so that `pytest_nengo.is_nengo_test`
     # returns True
-    testdir.tmpdir = testdir.tmpdir.mkdir("nengo")
-    testdir.chdir()
-    testdir.makefile(".py", __init__="")
+    nengo_dir = testdir.mkpydir("nengo")
 
-    # Create a test file with some dummy tests
-    testdir.makefile(
+    # Create a test file with some dummy tests, and move it into nengo_dir
+    test_file_path = testdir.makefile(
         ".py",
         test_file="""
         import pytest
 
         @pytest.mark.parametrize("param", (True, False))
         def test_unsupported(param):
-            print("test_unsupported param=%s ran" % param)
+            print(f"test_unsupported param={param} ran")
             assert param
 
         @pytest.mark.parametrize("param", (True, False))
         def test_unsupported_all(param):
-            print("test_unsupported_all param=%s ran" % param)
+            print(f"test_unsupported_all param={param} ran")
             assert False
 
         def test_supported():
@@ -34,6 +32,7 @@ def test_unsupported(xfail, testdir):
             assert True
         """,
     )
+    test_file_path.move(test_file_path.new(dirname=nengo_dir))
 
     # Create the .ini file to skip/xfail the failing tests. This will
     # make sure square brackets for parameters just skip that parametrization.

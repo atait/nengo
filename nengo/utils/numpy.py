@@ -1,15 +1,13 @@
 """
 Extra functions to extend the capabilities of Numpy.
 """
-from collections.abc import Iterable
 import logging
-
 import warnings
+from collections.abc import Iterable
 
 import numpy as np
 
 from ..exceptions import ValidationError
-
 
 logger = logging.getLogger(__name__)
 try:
@@ -89,7 +87,7 @@ def as_shape(x, min_dim=0):
     elif is_integer(x):
         shape = (x,)
     else:
-        raise ValueError("%r cannot be safely converted to a shape" % x)
+        raise ValueError(f"{x!r} cannot be safely converted to a shape")
 
     if len(shape) < min_dim:
         shape = tuple([1] * (min_dim - len(shape))) + shape
@@ -138,7 +136,7 @@ def array(x, dims=None, min_dims=0, readonly=False, **kwargs):
         y.shape = shape
     elif y.ndim > dims:
         raise ValidationError(
-            "Input cannot be cast to array with %d dimensions" % dims, attr="dims"
+            f"Input cannot be cast to array with {dims} dimensions", attr="dims"
         )
 
     if readonly:
@@ -277,6 +275,27 @@ def rmse(x, y, axis=None, keepdims=False):  # pragma: no cover
     )
     x, y = np.asarray(x), np.asarray(y)
     return rms(x - y, axis=axis, keepdims=keepdims)
+
+
+def nrmse(a, b, axis=None, keepdims=False):
+    """Compute the root-mean-square (RMS) error normalized by the RMS of ``b``.
+
+    Equivalent to ``rms(a - b, **kwargs) / rms(b, **kwargs)``
+
+    Parameters
+    ----------
+    a, b : array_like
+        Arrays to compute RMS error over, normalized by the rms amplitude of ``b``.
+    axis : None or int or tuple of ints, optional
+        Axis or axes to sum across. ``None`` sums all axes. See ``np.sum``.
+    keepdims : bool, optional
+        If True, the reduced axes are left in the result. See ``np.sum`` in
+        newer versions of Numpy (>= 1.7).
+    """
+    a, b = np.asarray(a), np.asarray(b)
+    return rms(a - b, axis=axis, keepdims=keepdims) / rms(
+        b, axis=axis, keepdims=keepdims
+    )
 
 
 if hasattr(np.fft, "rfftfreq"):

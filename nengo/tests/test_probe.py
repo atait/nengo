@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import nengo
+from nengo.exceptions import ValidationError
 from nengo.utils.stdlib import Timer
 
 
@@ -30,7 +31,6 @@ def test_multirun(Simulator, rng, allclose):
             assert allclose(sim_t[-1], t_sum, rtol=rtol)
 
 
-@pytest.mark.slow
 def test_dts(Simulator, seed, rng):
     """Test probes with different dts and runtimes"""
 
@@ -48,13 +48,9 @@ def test_dts(Simulator, seed, rng):
         t = sim.trange(sample_every=dt2)
         x = sim.data[ap]
 
-        assert len(t) == len(x), "dt=%f, dt2=%f, tend=%f, nt=%d, nx=%d" % (
-            dt,
-            dt2,
-            tend,
-            len(t),
-            len(x),
-        )
+        assert len(t) == len(
+            x
+        ), f"dt={dt}, dt2={dt2}, tend={tend}, nt={len(t)}, nx={len(x)}"
 
 
 def test_large(Simulator, seed, allclose):
@@ -69,7 +65,7 @@ def test_large(Simulator, seed, allclose):
     with model:
         probes = []
         for i in range(n):
-            xi = nengo.Node(label="x%d" % i, output=input_fn)
+            xi = nengo.Node(label=f"x{i}", output=input_fn)
             probes.append(nengo.Probe(xi, "output"))
 
     with Simulator(model) as sim:
@@ -258,3 +254,27 @@ def test_update_timing(Simulator, allclose):
 
     assert allclose(sim.data[sig_p][0], 0)
     assert allclose(sim.data[sig_p][1:], 2)
+
+
+def test_neuron_probe(Simulator, allclose):
+    with nengo.Network() as net:
+        ens = nengo.Ensemble(100, 1)
+        p = nengo.Probe(ens.neurons)
+        p_slice = nengo.Probe(ens.neurons[::2])
+        p_adv = nengo.Probe(ens.neurons[list(range(0, ens.n_neurons, 2))])
+
+    with Simulator(net) as sim:
+        sim.run_steps(100)
+
+    assert allclose(sim.data[p][:, ::2], sim.data[p_slice])
+    assert allclose(sim.data[p_slice], sim.data[p_adv])
+
+
+def test_not_probeable_error():
+    with nengo.Network():
+        with pytest.raises(ValidationError, match="Type 'object' is not probeable"):
+            nengo.Probe(object())
+
+        ens = nengo.Ensemble(10, 1)
+        with pytest.raises(ValidationError, match="Attribute 'badattr' is not probeab"):
+            nengo.Probe(ens, "badattr")

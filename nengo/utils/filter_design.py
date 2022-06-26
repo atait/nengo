@@ -40,18 +40,18 @@ import warnings
 
 import numpy as np
 from numpy import (
-    product,
-    zeros,
+    allclose,
     array,
-    dot,
-    r_,
-    eye,
+    asarray,
     atleast_1d,
     atleast_2d,
+    dot,
+    eye,
     poly,
+    product,
+    r_,
     roots,
-    asarray,
-    allclose,
+    zeros,
 )
 
 from nengo._vendor.scipy import expm
@@ -324,8 +324,8 @@ def ss2tf(A, B, C, D, input=0):
     # Check consistency and make them all rank-2 arrays
     A, B, C, D = abcd_normalize(A, B, C, D)
 
-    nout, nin = D.shape
-    if input >= nin:
+    n_out, n_in = D.shape
+    if input >= n_in:
         raise ValueError("System does not have the input specified.")
 
     # make MOSI from possibly MOMI system.
@@ -348,8 +348,8 @@ def ss2tf(A, B, C, D, input=0):
 
     num_states = A.shape[0]
     type_test = A[:, 0] + B[:, 0] + C[0, :] + D
-    num = np.zeros((nout, num_states + 1), type_test.dtype)
-    for k in range(nout):
+    num = np.zeros((n_out, num_states + 1), type_test.dtype)
+    for k in range(n_out):
         Ck = atleast_2d(C[k, :])
         num[k] = poly(A - dot(B, Ck)) + (D[k] - 1) * den
 
@@ -524,6 +524,6 @@ def cont2discrete(sys, dt, method="zoh", alpha=None):  # noqa: C901
         dd = d
 
     else:
-        raise ValueError("Unknown transformation method '%s'" % method)
+        raise ValueError(f"Unknown transformation method '{method}'")
 
     return ad, bd, cd, dd, dt

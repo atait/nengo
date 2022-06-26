@@ -3,7 +3,7 @@ import pytest
 
 import nengo
 from nengo import params
-from nengo.exceptions import ObsoleteError, ValidationError, ConfigError
+from nengo.exceptions import ConfigError, ObsoleteError, ValidationError
 from nengo.params import FunctionInfo
 
 
@@ -396,7 +396,7 @@ def test_configure_all_nengo_parameters():
                 assert getattr(net.config[obj], name) == val
 
             except Exception:
-                print("Error setting %s.%s" % (obj, name))
+                print(f"Error setting {obj}.{name}")
                 raise
 
 

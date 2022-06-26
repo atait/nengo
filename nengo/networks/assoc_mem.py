@@ -2,8 +2,8 @@ import warnings
 
 import numpy as np
 
-from nengo.connection import Connection
 from nengo.config import Config
+from nengo.connection import Connection
 from nengo.dists import Choice, Exponential, Uniform
 from nengo.ensemble import Ensemble
 from nengo.exceptions import ValidationError
@@ -11,6 +11,7 @@ from nengo.network import Network
 from nengo.node import Node
 from nengo.utils.network import with_self
 from nengo.utils.numpy import is_iterable
+
 from .ensemblearray import EnsembleArray
 
 
@@ -85,7 +86,7 @@ class AssociativeMemory(Network):
             # match
             raise ValidationError(
                 "Number of input vectors does not match number of output "
-                "vectors. %d != %d" % (input_vectors.shape[0], output_vectors.shape[0]),
+                f"vectors. {input_vectors.shape[0]} != {output_vectors.shape[0]}",
                 attr="input_vectors",
                 obj=type(self),
             )
@@ -101,8 +102,8 @@ class AssociativeMemory(Network):
         self.n_items = input_vectors.shape[0]
         if threshold.shape[0] != self.n_items:
             raise ValidationError(
-                "Number of threshold values (%d) does not match number of "
-                "input vectors (%d)." % (threshold.shape[0], self.n_items),
+                f"Number of threshold values ({threshold.shape[0]}) does not match "
+                f"number of input vectors ({self.n_items}).",
                 attr="threshold",
                 obj=self,
             )
@@ -231,15 +232,13 @@ class AssociativeMemory(Network):
         # --- Check some preconditions
         if input_scales.shape[1] != n_vectors:
             raise ValidationError(
-                "Number of input_scale values (%d) does not "
-                "match number of input vectors (%d)."
-                % (input_scales.shape[1], n_vectors),
+                f"Number of input_scale values ({input_scales.shape[1]}) does not "
+                f"match number of input vectors ({n_vectors}).",
                 attr="input_scales",
             )
         if hasattr(self, name):
             raise ValidationError(
-                "Name '%s' already exists as a node in the "
-                "associative memory." % name,
+                f"Name '{name}' already exists as a node in the associative memory.",
                 attr="name",
             )
 
@@ -276,8 +275,7 @@ class AssociativeMemory(Network):
         # --- Check preconditions
         if hasattr(self, name):
             raise ValidationError(
-                "Name '%s' already exists as a node in the "
-                "associative memory." % name,
+                f"Name '{name}' already exists as a node in the associative memory.",
                 attr="name",
             )
 
@@ -324,7 +322,7 @@ class AssociativeMemory(Network):
         """
         with self.default_ens_config:
             default_vector_ens = Ensemble(
-                n_neurons, 1, label="Default %s vector" % output_name
+                n_neurons, 1, label=f"Default {output_name} vector"
             )
             Connection(self.bias_node, default_vector_ens, synapse=None)
 

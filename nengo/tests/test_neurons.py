@@ -1,6 +1,6 @@
-from collections import defaultdict
 import logging
 import time
+from collections import defaultdict
 
 import numpy as np
 import pytest
@@ -8,15 +8,16 @@ import pytest
 import nengo
 from nengo.exceptions import BuildError, SimulationError, ValidationError
 from nengo.neurons import (
+    LIF,
     AdaptiveLIF,
     AdaptiveLIFRate,
     Direct,
     Izhikevich,
-    LIF,
     LIFRate,
     NeuronType,
     NeuronTypeParam,
     PoissonSpiking,
+    RatesToSpikesNeuronType,
     RectifiedLinear,
     RegularSpiking,
     Sigmoid,
@@ -405,7 +406,7 @@ def test_spiking_types(base_type, seed, plt, allclose):
 
         results[neuron_type]["u"] = sim.data[u_p]
         results[neuron_type]["x"] = sim.data[a_p]
-        plt.plot(sim.trange(), sim.data[a_p], label="%s: t=%.3f" % (neuron_type, timer))
+        plt.plot(sim.trange(), sim.data[a_p], label=f"{neuron_type}: t={timer:.3f}")
 
     plt.plot(sim.trange()[delay:], sim.data[u_p][:-delay], "k--")
     plt.legend(loc=3)
@@ -595,6 +596,11 @@ def test_direct_mode_nonfinite_value(Simulator):
             sim.run(0.01)
 
 
+def test_direct_step_error():
+    with pytest.raises(SimulationError, match="Direct mode neurons.*simulated"):
+        nengo.Direct().step(None, None, None)
+
+
 @pytest.mark.parametrize("generic", (True, False))
 def test_gain_bias(rng, NonDirectNeuronType, generic, allclose):
     if NonDirectNeuronType == Sigmoid and generic:
@@ -776,3 +782,25 @@ def test_bad_initial_state(rng, Simulator):
 def test_spikes_to_spikes_warning():
     with pytest.warns(UserWarning, match="type 'LIF', which is a spiking"):
         nengo.PoissonSpiking(nengo.LIF())
+
+
+def test_ratestospikes_state_overlap():
+    class CustomSpiking(RatesToSpikesNeuronType):  # pylint: disable=abstract-method
+        state = {"adaptation": nengo.dists.Choice([0])}
+
+    with pytest.raises(ValidationError, match="have an overlapping state variable"):
+        CustomSpiking(nengo.AdaptiveLIFRate())
+
+
+def test_step_math():
+    class CustomNeuronType(NeuronType):
+        def step(self, dt, J, output, **state):
+            return dict(dt=dt, J=J, output=output, state=state)
+
+    argnames = ["dt", "J", "output", "state1", "state2"]
+    args = {argname: object() for argname in argnames}
+    with pytest.warns(UserWarning, match="'step_math' has been renamed to 'step'"):
+        result = CustomNeuronType().step_math(**args)
+
+    for arg, val in args.items():
+        assert (result["state"][arg] if arg.startswith("state") else result[arg]) is val

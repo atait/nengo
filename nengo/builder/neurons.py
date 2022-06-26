@@ -1,22 +1,11 @@
 import numpy as np
 
-from nengo.builder import Builder, Operator, Signal
-<<<<<<< HEAD
-from nengo.neurons import (
-    AdaptiveLIF,
-    AdaptiveLIFRate,
-    Izhikevich,
-    LIF,
-    NeuronType,
-    SpikingRectifiedLinear,
-    FourierSinusoid,
-)
-from nengo.rc import rc
-=======
+from nengo.builder.builder import Builder
+from nengo.builder.operator import Operator
+from nengo.builder.signal import Signal
 from nengo.exceptions import BuildError
 from nengo.neurons import NeuronType, RatesToSpikesNeuronType
 from nengo.utils.numpy import is_array_like
->>>>>>> master
 
 
 class SimNeurons(Operator):
@@ -96,7 +85,7 @@ class SimNeurons(Operator):
 
     @property
     def _descstr(self):
-        return "%s, %s, %s" % (self.neurons, self.J, self.output)
+        return f"{self.neurons}, {self.J}, {self.output}"
 
     def make_step(self, signals, dt, rng):
         J = signals[self.J]
@@ -143,10 +132,10 @@ def build_neurons(model, neurontype, neurons, input_sig=None, output_sig=None):
 
     for key, init in state_init.items():
         if key in model.sig[neurons]:
-            raise BuildError("State name %r overlaps with existing signal name" % key)
+            raise BuildError(f"State name '{key}' overlaps with existing signal name")
         if is_array_like(init):
             model.sig[neurons][key] = Signal(
-                initial_value=init, name="%s.%s" % (neurons, key)
+                initial_value=init, name=f"{neurons}.{key}"
             )
             state[key] = model.sig[neurons][key]
         elif isinstance(init, np.random.RandomState):
@@ -154,8 +143,8 @@ def build_neurons(model, neurontype, neurons, input_sig=None, output_sig=None):
             state[key] = init
         else:
             raise BuildError(
-                "State %r is of type %r. Only array-likes and RandomStates are "
-                "currently supported." % (key, type(init).__name__)
+                f"State '{key}' is of type '{type(init).__name__}'. Only array-likes "
+                "and RandomStates are currently supported."
             )
 
     model.add_op(
@@ -218,9 +207,7 @@ def build_rates_to_spikes(model, neurontype, neurons):
 
     in_sig = model.sig[neurons]["in"]
     out_sig = model.sig[neurons]["out"]
-    rate_sig = Signal(
-        shape=model.sig[neurons]["in"].shape, name="%s.rate_out" % (neurons,)
-    )
+    rate_sig = Signal(shape=model.sig[neurons]["in"].shape, name=f"{neurons}.rate_out")
     model.sig[neurons]["rate_out"] = rate_sig
 
     # build the base neuron type

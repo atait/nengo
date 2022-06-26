@@ -8,8 +8,8 @@ import nengo.utils.numpy as npext
 from nengo.connection import ConnectionSolverParam
 from nengo.dists import Choice, UniformHypersphere
 from nengo.exceptions import BuildError, ValidationError
-from nengo.solvers import LstsqL2
 from nengo.processes import Piecewise
+from nengo.solvers import LstsqL2
 from nengo.transforms import Dense, NoTransform
 from nengo.utils.testing import signals_allclose
 
@@ -546,8 +546,8 @@ def test_slicing(Simulator, AnyNeuronType, plt, seed, allclose):
 
     atol = 0.01 if AnyNeuronType is nengo.Direct else 0.1
     for i, [y, p, wp] in enumerate(zip(ys, probes, weight_probes)):
-        assert allclose(y, sim.data[p][-20:], atol=atol), "Failed %d" % i
-        assert allclose(y, sim.data[wp][-20:], atol=atol), "Weights %d" % i
+        assert allclose(y, sim.data[p][-20:], atol=atol), f"Failed {i}"
+        assert allclose(y, sim.data[wp][-20:], atol=atol), f"Weights {i}"
 
 
 def test_neuron_slicing(Simulator, plt, seed, rng, allclose):
@@ -1015,10 +1015,12 @@ def test_connectionlearningruletypeparam():
         a = nengo.Ensemble(10, 1)
         b = nengo.Ensemble(11, 1)
 
-        with pytest.raises(ValueError):  # need a 2D transform for BCM
+        with pytest.raises(
+            ValidationError, match="can only be applied on connections to neurons"
+        ):
             nengo.Connection(a, b, learning_rule_type=nengo.BCM())
 
-        with pytest.raises(ValueError):  # transform must be correct shape
+        with pytest.raises(ValidationError, match="does not match expected shape"):
             nengo.Connection(
                 a, b, transform=np.ones((10, 11)), learning_rule_type=nengo.BCM()
             )
@@ -1214,3 +1216,16 @@ def test_learning_transform_shape_error(Simulator):
     ):
         with Simulator(net):
             pass
+
+
+def test_is_decoded_deprecation():
+    with pytest.warns(DeprecationWarning, match="is_decoded is deprecated"):
+        with nengo.Network():
+            assert nengo.Connection(nengo.Node(0), nengo.Node(size_in=1)).is_decoded
+
+
+def test_bad_function_type():
+    with nengo.Network():
+        ens = nengo.Ensemble(10, 1)
+        with pytest.raises(ValidationError, match="Invalid connection function type"):
+            nengo.Connection(ens, ens, function="hi")

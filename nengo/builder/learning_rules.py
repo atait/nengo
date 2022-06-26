@@ -1,11 +1,13 @@
 import numpy as np
 
-from nengo.builder import Builder, Operator, Signal
-from nengo.builder.operator import Copy, DotInc, Reset
+from nengo.builder.builder import Builder
+from nengo.builder.connection import slice_signal
+from nengo.builder.operator import Copy, DotInc, Operator, Reset
+from nengo.builder.signal import Signal
 from nengo.connection import LearningRule
-from nengo.ensemble import Ensemble
+from nengo.ensemble import Ensemble, Neurons
 from nengo.exceptions import BuildError
-from nengo.learning_rules import BCM, Oja, PES, Voja
+from nengo.learning_rules import BCM, PES, RLS, Oja, Voja
 from nengo.node import Node
 
 
@@ -83,7 +85,7 @@ class SimPES(Operator):
 
     @property
     def _descstr(self):
-        return "pre=%s, error=%s -> %s" % (self.pre_filtered, self.error, self.delta)
+        return f"pre={self.pre_filtered}, error={self.error} -> {self.delta}"
 
     def make_step(self, signals, dt, rng):
         pre_filtered = signals[self.pre_filtered]
@@ -179,11 +181,7 @@ class SimBCM(Operator):
 
     @property
     def _descstr(self):
-        return "pre=%s, post=%s -> %s" % (
-            self.pre_filtered,
-            self.post_filtered,
-            self.delta,
-        )
+        return f"pre={self.pre_filtered}, post={self.post_filtered} -> {self.delta}"
 
     def make_step(self, signals, dt, rng):
         pre_filtered = signals[self.pre_filtered]
@@ -287,11 +285,7 @@ class SimOja(Operator):
 
     @property
     def _descstr(self):
-        return "pre=%s, post=%s -> %s" % (
-            self.pre_filtered,
-            self.post_filtered,
-            self.delta,
-        )
+        return f"pre={self.pre_filtered}, post={self.post_filtered} -> {self.delta}"
 
     def make_step(self, signals, dt, rng):
         weights = signals[self.weights]
@@ -411,11 +405,7 @@ class SimVoja(Operator):
 
     @property
     def _descstr(self):
-        return "pre=%s, post=%s -> %s" % (
-            self.pre_decoded,
-            self.post_filtered,
-            self.delta,
-        )
+        return f"pre={self.pre_decoded}, post={self.post_filtered} -> {self.delta}"
 
     def make_step(self, signals, dt, rng):
         pre_decoded = signals[self.pre_decoded]
@@ -437,6 +427,94 @@ class SimVoja(Operator):
             )
 
         return step_simvoja
+
+
+class SimRLS(Operator):
+    r"""Calculate connection weight change according to the RLS rule.
+
+    Implements the Recursive Least Squares (RLS) learning rule of the form
+
+    .. math::
+
+       g_i &= \sum_j P_{ij}(n-1) r_i \\
+       P_{ij}(n) &= P_{ij}(n-1)
+                  - g_i g_j / \left( 1 + \sum_{ij} r_i P_{ij}(n-1) r_j \right) \\
+       \Delta \omega_{ji} &= \frac{\kappa \delta_t}{n} e_j \sum_{k} P_{ik}(n) r_k
+
+    where :math:`r_i` are the filtered presynaptic activities, :math:`e_j` are the
+    errors, :math:`\kappa` is the learning rate, :math:`\delta_t` is the simulator
+    timestep, and :math:`n` is the number of presynaptic neurons.
+
+    Parameters
+    ----------
+    pre_filtered : Signal
+        The filtered presynaptic activity, :math:`r_i`.
+    error : Signal
+        The error signal, :math:`e_j`.
+    delta : Signal
+        The synaptic weight change to be applied, :math:`\Delta \omega_{ji}`.
+    inv_gamma : ndarray
+        The inverse activity matrix :math:`P_{ij}`.
+    tag : str, optional
+        A label associated with the operator, for debugging purposes.
+
+    Notes
+    -----
+    1. sets ``[]``
+    2. incs ``[]``
+    3. reads ``[pre_filtered, error]``
+    4. updates ``[delta, inv_gamma]``
+    """
+
+    def __init__(self, pre_filtered, error, delta, inv_gamma, tag=None):
+        super().__init__(tag=tag)
+
+        self.sets = []
+        self.incs = []
+        self.reads = [pre_filtered, error]
+        self.updates = [delta, inv_gamma]
+
+    @property
+    def delta(self):
+        return self.updates[0]
+
+    @property
+    def inv_gamma(self):
+        return self.updates[1]
+
+    @property
+    def pre_filtered(self):
+        return self.reads[0]
+
+    @property
+    def error(self):
+        return self.reads[1]
+
+    @property
+    def _descstr(self):
+        return f"pre={self.pre_filtered} -> {self.delta}"
+
+    def make_step(self, signals, dt, rng):
+        r = signals[self.pre_filtered]
+        delta = signals[self.delta]
+        error = signals[self.error]
+        P = signals[self.inv_gamma]
+        assert r.ndim == error.ndim == 1
+        assert delta.ndim == P.ndim == 2
+        assert np.array_equal(P, P.T), "P must be symmetric"
+
+        def step_simrls():
+            # We want to compute:
+            #   P1 = P - (P r) (r^T P) / (1 + r^T P r)
+            #   delta = -error^T (P1 r)
+            # Taking advantage of the fact that P is symmetric (so P r = (r^T P)^T),
+            # and  P1 r = (1 / (1 + r^T P r)) P r, we have:
+            Pr = P.dot(r)
+            rPr1 = 1 / (1 + r.dot(Pr))
+            P[...] -= Pr[:, None] * (Pr[None, :] * rPr1)
+            delta[...] = error[:, None] * (-rPr1 * Pr[None, :])
+
+        return step_simrls
 
 
 def get_pre_ens(conn):
@@ -494,10 +572,6 @@ def build_learning_rule(model, rule):
 
     # --- Set up delta signal
     if rule.modifies == "encoders":
-        if not conn.is_decoded:
-            raise ValueError(
-                "The connection must be decoded in order to use encoder learning."
-            )
         post = get_post_ens(conn)
         target = model.sig[post]["encoders"]
         tag = "encoders += delta"
@@ -505,7 +579,7 @@ def build_learning_rule(model, rule):
         target = model.sig[conn]["weights"]
         tag = "weights += delta"
     else:
-        raise BuildError("Unknown target %r" % rule.modifies)
+        raise BuildError(f"Unknown target {rule.modifies!r}")
 
     delta = Signal(shape=target.shape, name="Delta")
 
@@ -695,27 +769,101 @@ def build_pes(model, pes, rule):
     model.sig[rule]["in"] = error  # error connection will attach here
 
     # Filter pre-synaptic activities with pre_synapse
-    acts = build_or_passthrough(model, pes.pre_synapse, model.sig[conn.pre_obj]["out"])
+    acts = build_or_passthrough(
+        model,
+        pes.pre_synapse,
+        slice_signal(
+            model,
+            model.sig[conn.pre_obj]["out"],
+            conn.pre_slice,
+        )
+        if isinstance(conn.pre_obj, Neurons)
+        else model.sig[conn.pre_obj]["out"],
+    )
 
-    if conn.is_decoded:
-        local_error = error
-    else:
+    if conn._to_neurons:
         # multiply error by post encoders to get a per-neuron error
         #   i.e. local_error = dot(encoders, error)
         post = get_post_ens(conn)
-        if conn.post_slice is not None and not isinstance(conn.post_slice, slice):
+        if not isinstance(conn.post_slice, slice):
             raise BuildError(
                 "PES learning rule does not support advanced indexing on non-decoded "
                 "connections"
             )
-        encoders = model.sig[post]["encoders"][:, conn.post_slice]
 
-        local_error = Signal(shape=(post.n_neurons,))
+        encoders = model.sig[post]["encoders"]
+        # slice along neuron dimension if connecting to a neuron object, otherwise
+        # slice along state dimension
+        encoders = (
+            encoders[:, conn.post_slice]
+            if isinstance(conn.post_obj, Ensemble)
+            else encoders[conn.post_slice, :]
+        )
+
+        local_error = Signal(shape=(encoders.shape[0],))
         model.add_op(Reset(local_error))
         model.add_op(DotInc(encoders, error, local_error, tag="PES:encode"))
+    else:
+        local_error = error
 
     model.add_op(SimPES(acts, local_error, model.sig[rule]["delta"], pes.learning_rate))
 
     # expose these for probes
     model.sig[rule]["error"] = error
     model.sig[rule]["activities"] = acts
+
+
+@Builder.register(RLS)
+def build_rls(model, rls, rule):
+    """Builds an `.RLS` (Recursive Least Squares) object into a model.
+
+    Calls synapse build functions to filter the pre activities,
+    and adds a `.SimRLS` operator to the model to calculate the delta.
+
+    Parameters
+    ----------
+    model : Model
+        The model to build into.
+    rls : RLS
+        Learning rule type to build.
+    rule : LearningRule
+        The learning rule object corresponding to the neuron type.
+
+    Notes
+    -----
+    Does not modify ``model.params[]`` and can therefore be called
+    more than once with the same `.RLS` instance.
+    """
+    conn = rule.connection
+    pre_activities = model.sig[conn.pre_obj]["out"]
+
+    pre_filtered = (
+        pre_activities
+        if rls.pre_synapse is None
+        else model.build(rls.pre_synapse, pre_activities)
+    )
+
+    # Create input error signal
+    error = Signal(np.zeros(rule.size_in), name="RLS:error")
+    model.add_op(Reset(error))
+    model.sig[rule]["in"] = error
+
+    # Create signal for running estimate of inverse correlation matrix
+    assert pre_filtered.ndim == 1
+    n_neurons = pre_filtered.shape[0]
+    learning_rate = rls.learning_rate * model.dt / n_neurons
+    inv_gamma = Signal(np.eye(n_neurons) * learning_rate, name="RLS:inv_gamma")
+
+    model.add_op(
+        SimRLS(
+            pre_filtered=pre_filtered,
+            error=error,
+            delta=model.sig[rule]["delta"],
+            inv_gamma=inv_gamma,
+        )
+    )
+
+    # expose these for probes
+    model.sig[rule]["pre_filtered"] = pre_filtered
+    model.sig[rule]["error"] = error
+    model.sig[rule]["inv_gamma"] = inv_gamma

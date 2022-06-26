@@ -18,11 +18,13 @@ manifest_in:
     - nengo *.md
     - nengo *.rst
     - nengo *.txt
+    - nengo *.npz
 
 setup_py:
   package_data:
     nengo:
       - nengo-data/nengorc
+  include_package_data: True
   py_modules:
     - pytest_nengo
   entry_points:
@@ -45,7 +47,7 @@ setup_py:
   tests_req:
     - jupyter
     - matplotlib>=1.4
-    - pytest>=3.6
+    - pytest>=3.9.1
     - pytest-allclose
     - pytest-plt
     - pytest-rng
@@ -56,14 +58,16 @@ setup_py:
     - "License :: Free for non-commercial use"
     - "Operating System :: OS Independent"
     - "Programming Language :: Python :: 3 :: Only"
-    - "Programming Language :: Python :: 3.5"
     - "Programming Language :: Python :: 3.6"
     - "Programming Language :: Python :: 3.7"
     - "Programming Language :: Python :: 3.8"
+    - "Programming Language :: Python :: 3.9"
     - "Topic :: Scientific/Engineering :: Artificial Intelligence"
 
 setup_cfg:
   coverage:
+    exclude_lines:
+      - "^[ \\t]*assert False"
     omit_files:
       - "nengo/_vendor/*"
       - "nengo/spa/*"
@@ -116,6 +120,7 @@ docs_conf_py:
     - "import numpy as np"
     - "if np.__version__ >= '1.14':"
     - "    np.set_printoptions(legacy='1.13')"
+    - "import matplotlib.pyplot as plt"
   html_redirects:
     backend_api.html: backend-api.html
     examples/advanced/functions_and_tuning_curves.html:
@@ -165,6 +170,7 @@ docs_conf_py:
   autoautosummary_change_modules:
     nengo:
       - nengo.learning_rules.PES
+      - nengo.learning_rules.RLS
       - nengo.learning_rules.BCM
       - nengo.learning_rules.Oja
       - nengo.learning_rules.Voja
@@ -193,7 +199,7 @@ docs_conf_py:
       - nengo.builder.signal.Signal
 
 travis_yml:
-  python: 3.6
+  python: 3.7
   global_vars:
     NUMPY: numpy
   jobs:
@@ -202,7 +208,7 @@ travis_yml:
       test_args: --memory --plots
     - script: test-coverage
       test_args: --plots
-      python: 3.5
+      python: 3.6
     - script: docs
       apt_install:
         - graphviz
@@ -224,10 +230,8 @@ travis_yml:
         NUMPY: numpy==1.17
       if: "branch =~ ^release-candidate-*"
     - dist: bionic
-      python: 3.7
-    - dist: bionic
-      python: 3.8
-  pypi_user: tbekolay
+      python: 3.9
+  pypi_user: __token__
   deploy_dists:
     - sdist
     - bdist_wheel

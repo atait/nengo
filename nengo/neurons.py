@@ -2,7 +2,7 @@ import warnings
 
 import numpy as np
 
-from nengo.dists import Choice, Distribution, get_samples, Uniform
+from nengo.dists import Choice, Distribution, Uniform, get_samples
 from nengo.exceptions import SimulationError, ValidationError
 from nengo.params import DictParam, FrozenObject, NumberParam, Parameter
 from nengo.rc import rc
@@ -75,15 +75,14 @@ class NeuronType(FrozenObject):
             for name, value in self.initial_state.items():
                 if name not in self.state:
                     raise ValidationError(
-                        "State variable %r not recognized; should be one of %s"
-                        % (name, ", ".join(repr(k) for k in self.state)),
+                        f"State variable '{name}' not recognized; should be one of "
+                        f"{', '.join(repr(k) for k in self.state)}",
                         attr="initial_state",
                         obj=self,
                     )
                 if not (isinstance(value, Distribution) or is_array_like(value)):
                     raise ValidationError(
-                        "State variable %r must be a distribution or array-like"
-                        % (name,),
+                        f"State variable '{name}' must be a distribution or array-like",
                         attr="initial_state",
                         obj=self,
                     )
@@ -121,8 +120,7 @@ class NeuronType(FrozenObject):
             x = x[:, np.newaxis]
         elif x.ndim >= 3 or x.shape[1] != gain.shape[0]:
             raise ValidationError(
-                "Expected shape (%d, %d); got %s."
-                % (x.shape[0], gain.shape[0], x.shape),
+                f"Expected shape {(x.shape[0], gain.shape[0])}; got {x.shape}.",
                 attr="x",
                 obj=self,
             )
@@ -288,12 +286,12 @@ class NeuronType(FrozenObject):
         """
         raise NotImplementedError("Neurons must provide step")
 
-    def step_math(self, dt, J, **state):
+    def step_math(self, dt, J, output, **state):
         warnings.warn(
             "'step_math' has been renamed to 'step'. This alias will be removed "
             "in Nengo 4.0"
         )
-        return self.step(dt, J, **state)
+        return self.step(dt, J, output, **state)
 
 
 class NeuronTypeParam(Parameter):
@@ -451,8 +449,8 @@ class Sigmoid(NeuronType):
         inv_tau_ref = 1.0 / self.tau_ref
         if not np.all(max_rates < inv_tau_ref):
             raise ValidationError(
-                "Max rates must be below the inverse refractory period (%0.3f)"
-                % (inv_tau_ref,),
+                "Max rates must be below the inverse "
+                f"refractory period ({inv_tau_ref:0.3f})",
                 attr="max_rates",
                 obj=self,
             )
@@ -501,8 +499,8 @@ class Tanh(NeuronType):
         inv_tau_ref = 1.0 / self.tau_ref
         if not np.all(max_rates < inv_tau_ref):
             raise ValidationError(
-                "Max rates must be below the inverse refractory period (%0.3f)"
-                % inv_tau_ref,
+                "Max rates must be below the inverse "
+                f"refractory period ({inv_tau_ref:0.3f})",
                 attr="max_rates",
                 obj=self,
             )
@@ -650,7 +648,7 @@ class LIFRate(NeuronType):
         if not np.all(max_rates < inv_tau_ref):
             raise ValidationError(
                 "Max rates must be below the inverse "
-                "refractory period (%0.3f)" % inv_tau_ref,
+                f"refractory period ({inv_tau_ref:0.3f})",
                 attr="max_rates",
                 obj=self,
             )
@@ -1038,16 +1036,16 @@ class RatesToSpikesNeuronType(NeuronType):
 
         if base_type.spiking:
             warnings.warn(
-                "'base_type' is type %r, which is a spiking neuron type. We recommend "
-                "using the non-spiking equivalent type, if one exists."
-                % (type(base_type).__name__)
+                f"'base_type' is type '{type(base_type).__name__}', which is a spiking "
+                "neuron type. We recommend using the non-spiking equivalent type, "
+                "if one exists."
             )
 
         for s in self.state:
             if s in self.base_type.state:
                 raise ValidationError(
-                    "%s and %s have overlapping state variable (%s)"
-                    % (self, self.base_type, s),
+                    f"{self} and {self.base_type} have an overlapping "
+                    f"state variable ({s})",
                     attr="state",
                     obj=self,
                 )

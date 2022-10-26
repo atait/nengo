@@ -8,7 +8,6 @@ from nengo.synapses import Alpha, LinearFilter, Lowpass, Synapse, SynapseParam, 
 from nengo.utils.filter_design import cont2discrete
 from nengo.utils.testing import signals_allclose
 
-
 # The following num, den are for a 4th order analog Butterworth filter,
 # generated with `scipy.signal.butter(4, 0.1, analog=False)`
 butter_num = np.array([0.0004166, 0.0016664, 0.0024996, 0.0016664, 0.0004166])
@@ -63,7 +62,7 @@ def test_lowpass(Simulator, plt, seed, allclose):
 def test_alpha(Simulator, plt, seed, allclose):
     dt = 1e-3
     tau = 0.03
-    num, den = [1], [tau ** 2, 2 * tau, 1]
+    num, den = [1], [tau**2, 2 * tau, 1]
 
     t, x, yhat = run_synapse(Simulator, seed, Alpha(tau), dt=dt)
     y = LinearFilter(num, den).filt(x, dt=dt, y0=0)
@@ -111,13 +110,37 @@ def test_linearfilter(Simulator, plt, seed, allclose):
     assert signals_allclose(t, y, yhat, delay=dt, plt=plt, allclose=allclose)
 
 
+def test_linearfilter_evaluate(plt):
+    tau = 0.02
+    ord1 = LinearFilter([1], [tau, 1])
+    ord2 = LinearFilter([1], [tau**2, 2 * tau, 1])
+
+    f = np.logspace(-1, 3, 100)
+    y1 = ord1.evaluate(f)
+    y2 = ord2.evaluate(f)
+
+    plt.subplot(211)
+    plt.semilogx(f, 20 * np.log10(np.abs(y1)))
+    plt.semilogx(f, 20 * np.log10(np.abs(y2)))
+
+    plt.subplot(212)
+    plt.semilogx(f, np.angle(y1))
+    plt.semilogx(f, np.angle(y2))
+
+    jw_tau = 2.0j * np.pi * f * tau
+    y1_ref = 1 / (jw_tau + 1)
+    y2_ref = 1 / (jw_tau**2 + 2 * jw_tau + 1)
+    assert np.allclose(y1, y1_ref)
+    assert np.allclose(y2, y2_ref)
+
+
 def test_linearfilter_y0(allclose):
     # --- y0 sets initial state correctly for high-order filter
     synapse = LinearFilter(butter_num, butter_den, analog=False)
     v = 9.81
     x = v * np.ones(10)
     assert allclose(synapse.filt(x, y0=v), v)
-    assert not allclose(synapse.filt(x, y0=0), v, record_rmse=False)
+    assert not allclose(synapse.filt(x, y0=0), v, record_rmse=False, print_fail=0)
 
     # --- y0 does not work for high-order synapse when DC gain is zero
     synapse = LinearFilter([1, 0], [1, 1])
@@ -262,7 +285,7 @@ def test_combined_delay(Simulator, allclose):
     # for sys1, this comes from two levels of filtering
     # for sys2, this comes from one level of filtering + delay in sys2
     assert allclose(sim.data[p1][:2], 0)
-    assert not allclose(sim.data[p1][2], 0, record_rmse=False)
+    assert not allclose(sim.data[p1][2], 0, record_rmse=False, print_fail=0)
 
 
 def test_synapseparam():
@@ -308,7 +331,7 @@ def test_frozen():
 
 
 def test_synapse_subclass(Simulator):
-    class MySynapse(Synapse):
+    class MySynapse(Synapse):  # pylint: disable=abstract-method
         pass
 
     with nengo.Network() as net:

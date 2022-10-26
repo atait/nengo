@@ -59,7 +59,7 @@ def test_connected(Simulator, plt, seed, allclose):
     sim_sin = sim.data[p_in].ravel()
     sim_sq = sim.data[p_out].ravel()
     assert allclose(sim_sin, np.sin(sim_t))
-    assert allclose(sim_sq, sim_sin ** 2)
+    assert allclose(sim_sq, sim_sin**2)
 
 
 def test_passthrough(Simulator, plt, seed, allclose):
@@ -147,30 +147,32 @@ def test_outputparam_errors(Simulator):
         nengo.Node(size_in=1)
 
         # type errors
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="Invalid node output type"):
             nengo.Node(output=object())
+        with pytest.raises(ValidationError, match="is expected to accept exactly 1"):
+            nengo.Node(output=np.add)
 
         # function errors
         nengo.Node(output=lambda t, x=[0]: t + 1, size_in=1)
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="is expected to accept exactly 1"):
             nengo.Node(output=lambda t, x: x + 1)
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="is expected to accept exactly 2"):
             nengo.Node(output=lambda t: t + 1, size_in=1)
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="is expected to accept exactly 2"):
             nengo.Node(output=lambda t, x, y: t + 1, size_in=2)
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="must be callable if size_in != 0"):
             nengo.Node(output=[0], size_in=1)
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="must be callable if size_in != 0"):
             nengo.Node(output=0, size_in=1)
 
         # shape errors
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match=r"vector \(got shape \(2, 2\)\)"):
             nengo.Node(output=[[1, 2], [3, 4]])
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match=r"vector \(got shape \(1, 2\)\)"):
             nengo.Node(output=lambda t: [[t, t + 1]])
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match=r"vector \(got shape \(2, 2\)\)"):
             nengo.Node(output=[[3, 1], [2, 9]], size_out=4)
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match=r"\(5\) does not match size_out"):
             nengo.Node(output=[1, 2, 3, 4, 5], size_out=4)
 
     with Simulator(model):
@@ -188,6 +190,7 @@ def test_none(Simulator, seed):
     def input_function(t):
         if t < 0.005:
             return [1]
+        return None
 
     with model:
         u = nengo.Node(output=input_function)
@@ -322,11 +325,11 @@ def test_set_callable_output(Simulator):
             nengo.Node(lambda t, x: 2.0, size_in=0, size_out=0)
         # if size_in > 0, should take both t and x
         with pytest.raises(ValidationError):
-            nengo.Node(lambda t: t ** 2, size_in=1)
+            nengo.Node(lambda t: t**2, size_in=1)
         # function must return a scalar or vector, not matrix
         with pytest.raises(ValidationError):
             nengo.Node(lambda t: np.ones((2, 2)))
-        # variable length argument lists should be allowed (used in Nengo SPA)
+        # variable length argument lists should be allowed (used in NengoSPA)
         nengo.Node(lambda *args: [2.0], size_in=0, size_out=1)
         nengo.Node(lambda *args: [2.0], size_in=1, size_out=1)
 
@@ -359,6 +362,7 @@ def test_args(Simulator):
             assert isinstance(t, float)
             assert isinstance(x, np.ndarray)
             assert self.last_x is not x  # x should be a new copy on each call
+            assert x.base is None  # x should not be a view (since it should be a copy)
             self.last_x = x
             assert x[0] == t
 
@@ -424,3 +428,8 @@ def test_invalid_values(Simulator, badval):
     with Simulator(model) as sim:
         with pytest.raises(SimulationError):
             sim.run(0.01)
+
+
+def test_probeable():
+    with nengo.Network():
+        assert nengo.Node(np.sin).probeable == ("output",)

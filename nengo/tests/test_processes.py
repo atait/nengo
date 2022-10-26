@@ -39,6 +39,18 @@ class TimeProcess(Process):
         return lambda t, x: [t * np.sum(x)] * size_out
 
 
+class QueueProcess(Process):
+    def __init__(self):
+        super().__init__()
+        self.queue = []
+
+    def make_step(self, shape_in, shape_out, dt, rng, state):
+        def step(t, x, queue=self.queue):  # pylint: disable=dangerous-default-value
+            queue.append(x)
+
+        return step
+
+
 def test_time(Simulator, allclose):
     t_run = 1.0
     c = 2.0
@@ -129,7 +141,7 @@ def test_gaussian_whitenoise(Simulator, rms, seed, plt, allclose):
 
     trange = sim.trange()
     plt.subplot(2, 1, 1)
-    plt.title("First two dimensions of white noise process, rms=%.1f" % rms)
+    plt.title(f"First two dimensions of white noise process, rms={rms:.1f}")
     plt.plot(trange, values[:, :2])
     plt.xlim(right=trange[-1])
     plt.subplot(2, 1, 2)
@@ -157,7 +169,7 @@ def test_whitesignal_rms(Simulator, rms, seed, plt, allclose):
 
     trange = sim.trange()
     plt.subplot(2, 1, 1)
-    plt.title("First two D of white noise process, rms=%.1f" % rms)
+    plt.title(f"First two D of white noise process, rms={rms:.1f}")
     plt.plot(trange, values[:, :2])
     plt.xlim(right=trange[-1])
     plt.subplot(2, 1, 2)
@@ -201,7 +213,7 @@ def test_whitesignal_high_dt(Simulator, high, dt, seed, plt, allclose):
 
     trange = sim.trange()
     plt.subplot(2, 1, 1)
-    plt.title("First two D of white noise process, high=%d Hz" % high)
+    plt.title(f"First two D of white noise process, high={high} Hz")
     plt.plot(trange, values[:, :2])
     plt.xlim(right=trange[-1])
     plt.subplot(2, 1, 2)
@@ -214,13 +226,17 @@ def test_whitesignal_high_dt(Simulator, high, dt, seed, plt, allclose):
 
 
 @pytest.mark.parametrize("high,dt", [(501, 0.001), (500, 0.002)])
-def test_whitesignal_nyquist(Simulator, dt, high, seed):
-    # check that high cannot exceed nyquist frequency
+def test_whitesignal_high_errors(Simulator, dt, high, seed):
+    """Check for errors if ``high`` is not between 1/period and nyquist frequency."""
+
+    with pytest.raises(ValidationError, match="Make ``high >= 1. / period``"):
+        process = WhiteSignal(period=10 * dt, high=9 * dt)
+
     process = WhiteSignal(1.0, high=high)
     with nengo.Network() as model:
         nengo.Node(process, size_out=1)
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="High must not exceed the Nyquist"):
         Simulator(model, dt=dt, seed=seed)
 
 
@@ -245,7 +261,7 @@ def test_whitesignal_continuity(Simulator, seed, plt):
     safety_factor = 2.0
     a, f = np.sqrt(2) * rms, (2 * np.pi * high) * dt
     assert abs(np.diff(x, axis=0)).max() <= safety_factor * a * f
-    assert abs(np.diff(x, n=2, axis=0)).max() <= safety_factor ** 2 * a * f ** 2
+    assert abs(np.diff(x, n=2, axis=0)).max() <= safety_factor**2 * a * f**2
 
 
 def test_sampling_shape():
@@ -253,6 +269,25 @@ def test_sampling_shape():
     assert process.run_steps(1).shape == (1, 1)
     assert process.run_steps(5, d=1).shape == (5, 1)
     assert process.run_steps(1, d=2).shape == (1, 2)
+
+
+def test_x_copy(Simulator, allclose):
+    """Test that process `x` is copied internally.
+
+    If it is not copied, all elements in `process.queue` will reference the same
+    underlying array, and will all be equal to each other.
+    """
+    with nengo.Network() as model:
+        u = nengo.Node(lambda t: [t, t + 2])
+        process = QueueProcess()
+        v = nengo.Node(process, size_in=2)
+        nengo.Connection(u, v, synapse=None)
+
+    with Simulator(model) as sim:
+        sim.run(0.003)
+
+    t = sim.trange()
+    assert allclose(process.queue, np.column_stack([t, t + 2]))
 
 
 def test_reset(Simulator, seed, allclose):
@@ -318,10 +353,16 @@ def test_seed(Simulator, seed, allclose):
     tols = dict(atol=1e-7, rtol=1e-4)
     assert allclose(sim1.data[ap], sim2.data[ap], **tols)
     assert allclose(sim1.data[bp], sim2.data[bp], **tols)
-    assert not allclose(sim1.data[cp], sim2.data[cp], record_rmse=False, **tols)
-    assert not allclose(sim1.data[ap], sim1.data[bp], record_rmse=False, **tols)
+    assert not allclose(
+        sim1.data[cp], sim2.data[cp], record_rmse=False, print_fail=0, **tols
+    )
+    assert not allclose(
+        sim1.data[ap], sim1.data[bp], record_rmse=False, print_fail=0, **tols
+    )
     assert allclose(sim1.data[dp], sim2.data[dp], **tols)
-    assert not allclose(sim1.data[ep], sim2.data[ep], record_rmse=False, **tols)
+    assert not allclose(
+        sim1.data[ep], sim2.data[ep], record_rmse=False, print_fail=0, **tols
+    )
 
 
 def test_present_input(Simulator, rng, allclose):
@@ -368,7 +409,7 @@ class TestPiecewise:
         assert allclose(f[t == 0.1], [0.0])
         assert allclose(f[t == 0.15], [0.0])
 
-    def test_lists(self, Simulator, allclose):
+    def test_lists_in_data(self, Simulator, allclose):
         t, f = self.run_sim({0.05: [1, 0], 0.1: [0, 1]}, "zero", Simulator)
         assert allclose(f[t == 0.001], [0.0, 0.0])
         assert allclose(f[t == 0.025], [0.0, 0.0])
@@ -392,7 +433,15 @@ class TestPiecewise:
 
     def test_invalid_key(self):
         data = {0.05: 1, 0.1: 0, "a": 0.2}
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match=r"Keys must be times \(floats or in"):
+            Piecewise(data)
+
+    def test_invalid_callable(self):
+        def badcallable(t):
+            raise RuntimeError()
+
+        data = {0.05: 1, 0.1: badcallable}
+        with pytest.raises(ValidationError, match="should return a numerical const"):
             Piecewise(data)
 
     def test_invalid_length(self):
@@ -413,7 +462,7 @@ class TestPiecewise:
         # Emulate not having scipy in case we have scipy
         monkeypatch.setitem(sys.modules, "scipy.interpolate", None)
 
-        with pytest.warns(UserWarning):
+        with pytest.warns(UserWarning, match="cannot be applied.*scipy is not inst"):
             process = Piecewise({0.05: 1, 0.1: 0}, interpolation="linear")
         assert process.interpolation == "zero"
 
@@ -493,10 +542,10 @@ class TestPiecewise:
 
     def test_function_list(self, Simulator, allclose):
         def func1(t):
-            return t, t ** 2, t ** 3
+            return t, t**2, t**3
 
         def func2(t):
-            return t ** 4, t ** 5, t ** 6
+            return t**4, t**5, t**6
 
         t, f = self.run_sim({0.05: func1, 0.1: func2}, "zero", Simulator)
         assert allclose(f[t == 0.001], [0.0])
@@ -517,7 +566,7 @@ class TestPiecewise:
 
     def test_mixture_3d(self, Simulator, allclose):
         def func(t):
-            return t, t ** 2, t ** 3
+            return t, t**2, t**3
 
         t, f = self.run_sim({0.05: [1, 1, 1], 0.1: func}, "zero", Simulator)
         assert allclose(f[t == 0.001], [0.0, 0.0, 0.0])
@@ -528,13 +577,24 @@ class TestPiecewise:
         assert allclose(f[t == 0.15], func(0.15))
 
     def test_invalid_function_length(self):
-        with pytest.raises(ValidationError):
-            Piecewise({0.5: 0, 1.0: lambda t: [t, t ** 2]})
+        with pytest.raises(ValidationError, match="time 1.0 has size 2"):
+            Piecewise({0.5: 0, 1.0: lambda t: [t, t**2]})
 
     def test_invalid_interpolation_on_func(self):
         def func(t):
             return t
 
-        with pytest.warns(UserWarning):
+        with pytest.warns(UserWarning, match="cannot be applied.*callable was sup"):
             process = Piecewise({0.05: 0, 0.1: func}, interpolation="linear")
         assert process.interpolation == "zero"
+
+    def test_cubic_interpolation_warning(self):
+        pytest.importorskip("scipy")
+
+        # cubic interpolation with 0 not in times
+        process = Piecewise({0.001: 0, 0.1: 0.1}, interpolation="cubic")
+        with pytest.warns(UserWarning, match="'cubic' interpolation.*for t=0.0"):
+            try:
+                process.run(0.001)
+            except ValueError:
+                pass  # scipy may raise a ValueError

@@ -1,8 +1,8 @@
-import collections
 import threading
+from collections.abc import Sequence
 
 
-class ThreadLocalStack(threading.local, collections.Sequence):
+class ThreadLocalStack(threading.local, Sequence):  # pylint: disable=too-many-ancestors
     def __init__(self, maxsize=None):
         super().__init__()
         self.maxsize = maxsize

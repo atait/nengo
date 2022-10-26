@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import nengo
+from nengo.exceptions import ValidationError
 from nengo.utils.stdlib import Timer
 
 
@@ -30,11 +31,10 @@ def test_multirun(Simulator, rng, allclose):
             assert allclose(sim_t[-1], t_sum, rtol=rtol)
 
 
-@pytest.mark.slow
 def test_dts(Simulator, seed, rng):
     """Test probes with different dts and runtimes"""
 
-    for i in range(100):
+    for _ in range(100):
         dt = rng.uniform(0.001, 0.1)  # simulator dt
         dt2 = rng.uniform(dt, 0.15)  # probe dt
         tend = rng.uniform(0.2, 0.3)  # simulator runtime
@@ -48,13 +48,9 @@ def test_dts(Simulator, seed, rng):
         t = sim.trange(sample_every=dt2)
         x = sim.data[ap]
 
-        assert len(t) == len(x), "dt=%f, dt2=%f, tend=%f, nt=%d, nx=%d" % (
-            dt,
-            dt2,
-            tend,
-            len(t),
-            len(x),
-        )
+        assert len(t) == len(
+            x
+        ), f"dt={dt}, dt2={dt2}, tend={tend}, nt={len(t)}, nx={len(x)}"
 
 
 def test_large(Simulator, seed, allclose):
@@ -69,7 +65,7 @@ def test_large(Simulator, seed, allclose):
     with model:
         probes = []
         for i in range(n):
-            xi = nengo.Node(label="x%d" % i, output=input_fn)
+            xi = nengo.Node(label=f"x{i}", output=input_fn)
             probes.append(nengo.Probe(xi, "output"))
 
     with Simulator(model) as sim:
@@ -127,7 +123,7 @@ def test_multiple_probes(Simulator, allclose):
         ens = nengo.Ensemble(10, 1)
         p_001 = nengo.Probe(ens, sample_every=dt)
         p_01 = nengo.Probe(ens, sample_every=f * dt)
-        p_1 = nengo.Probe(ens, sample_every=f ** 2 * dt)
+        p_1 = nengo.Probe(ens, sample_every=f**2 * dt)
 
     with Simulator(model, dt=dt) as sim:
         sim.run(1.0)
@@ -159,7 +155,7 @@ def test_conn_output(Simulator, allclose):
         n2 = nengo.Node(output=0.5)
         n_out = nengo.Node(size_in=1)
         c1 = nengo.Connection(n1, n_out, transform=-1, synapse=None)
-        c2 = nengo.Connection(n2, n_out, function=lambda x: x ** 2, synapse=None)
+        c2 = nengo.Connection(n2, n_out, function=lambda x: x**2, synapse=None)
         p1 = nengo.Probe(c1, "output", synapse=None)
         p2 = nengo.Probe(c2, "output", synapse=None)
 
@@ -167,7 +163,7 @@ def test_conn_output(Simulator, allclose):
         sim.run(0.2)
     t = sim.trange()
     assert allclose(sim.data[p1][:, 0], -1.0 * np.sin(t))
-    assert allclose(sim.data[p2][:, 0], 0.5 ** 2)
+    assert allclose(sim.data[p2][:, 0], 0.5**2)
 
 
 def test_slice(Simulator, allclose):
@@ -182,12 +178,16 @@ def test_slice(Simulator, allclose):
         bp1a = nengo.Probe(b[1], synapse=0.03)
         bp1b = nengo.Probe(b[1:], synapse=0.03)
 
+        bpv = nengo.Probe(b.neurons, "voltage")
+        bpv_a = nengo.Probe(b.neurons[::2], "voltage")
+
     with Simulator(model) as sim:
         sim.run(0.5)
     assert allclose(sim.data[bp][:, 0], sim.data[bp0a][:, 0])
     assert allclose(sim.data[bp][:, 0], sim.data[bp0b][:, 0])
     assert allclose(sim.data[bp][:, 1], sim.data[bp1a][:, 0])
     assert allclose(sim.data[bp][:, 1], sim.data[bp1b][:, 0])
+    assert allclose(sim.data[bpv][:, ::2], sim.data[bpv_a])
 
 
 def test_solver_defaults():
@@ -254,3 +254,27 @@ def test_update_timing(Simulator, allclose):
 
     assert allclose(sim.data[sig_p][0], 0)
     assert allclose(sim.data[sig_p][1:], 2)
+
+
+def test_neuron_probe(Simulator, allclose):
+    with nengo.Network() as net:
+        ens = nengo.Ensemble(100, 1)
+        p = nengo.Probe(ens.neurons)
+        p_slice = nengo.Probe(ens.neurons[::2])
+        p_adv = nengo.Probe(ens.neurons[list(range(0, ens.n_neurons, 2))])
+
+    with Simulator(net) as sim:
+        sim.run_steps(100)
+
+    assert allclose(sim.data[p][:, ::2], sim.data[p_slice])
+    assert allclose(sim.data[p_slice], sim.data[p_adv])
+
+
+def test_not_probeable_error():
+    with nengo.Network():
+        with pytest.raises(ValidationError, match="Type 'object' is not probeable"):
+            nengo.Probe(object())
+
+        ens = nengo.Ensemble(10, 1)
+        with pytest.raises(ValidationError, match="Attribute 'badattr' is not probeab"):
+            nengo.Probe(ens, "badattr")

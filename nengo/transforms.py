@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 
 from nengo.base import FrozenObject
-from nengo.dists import Distribution, DistOrArrayParam, Uniform
+from nengo.dists import DistOrArrayParam, Distribution, Uniform
 from nengo.exceptions import ValidationError
 from nengo.params import (
     BoolParam,
@@ -55,12 +55,12 @@ class ChannelShapeParam(ShapeParam):
     .. versionadded:: 3.0.0
     """
 
-    def coerce(self, transform, shape):
+    def coerce(self, transform, shape):  # pylint: disable=arguments-renamed
         if isinstance(shape, ChannelShape):
             if shape.channels_last != transform.channels_last:
                 raise ValidationError(
-                    "transform has channels_last=%s, but input shape has "
-                    "channels_last=%s" % (transform.channels_last, shape.channels_last),
+                    f"transform has channels_last={transform.channels_last}, but input "
+                    f"shape has channels_last={shape.channels_last}",
                     attr=self.name,
                     obj=transform,
                 )
@@ -111,8 +111,8 @@ class Dense(Transform):
 
             if expected_shape is not None and init.shape != expected_shape:
                 raise ValidationError(
-                    "Shape of initial value %s does not match expected "
-                    "shape %s" % (init.shape, expected_shape),
+                    f"Shape of initial value {init.shape} does not match expected "
+                    f"shape {expected_shape}",
                     attr="init",
                 )
 
@@ -120,7 +120,7 @@ class Dense(Transform):
 
     @property
     def _argreprs(self):
-        return ["shape=%r" % (self.shape,)]
+        return [f"shape={self.shape!r}"]
 
     def sample(self, rng=np.random):
         if isinstance(self.init, Distribution):
@@ -150,7 +150,7 @@ class SparseInitParam(Parameter):
         ):
             raise ValidationError(
                 "Must be `nengo.transforms.SparseMatrix` or "
-                "`scipy.sparse.spmatrix`, got %s" % type(value),
+                f"`scipy.sparse.spmatrix`, got '{type(value)}'",
                 attr="init",
                 obj=instance,
             )
@@ -321,7 +321,7 @@ class Sparse(Transform):
 
     @property
     def _argreprs(self):
-        return ["shape=%r" % (self.shape,)]
+        return [f"shape={self.shape!r}"]
 
     def sample(self, rng=np.random):
         if scipy_sparse and isinstance(self.init, scipy_sparse.spmatrix):
@@ -338,7 +338,144 @@ class Sparse(Transform):
         return self.shape[0]
 
 
-class Convolution(Transform):
+class _ConvolutionBase(Transform):
+    """Abstract base class for Convolution and ConvolutionTranspose."""
+
+    n_filters = IntParam("n_filters", low=1)
+    input_shape = ChannelShapeParam("input_shape", low=1)
+    kernel_size = ShapeParam("kernel_size", low=1)
+    strides = ShapeParam("strides", low=1)
+    padding = EnumParam("padding", values=("same", "valid"))
+    channels_last = BoolParam("channels_last")
+    init = DistOrArrayParam("init")
+    groups = IntParam("groups", low=1)
+
+    _param_init_order = ["channels_last", "input_shape"]
+
+    def __init__(
+        self,
+        n_filters,
+        input_shape,
+        kernel_size=(3, 3),
+        strides=(1, 1),
+        padding="valid",
+        channels_last=True,
+        init=Uniform(-1, 1),
+        groups=1,
+    ):
+        super().__init__()
+
+        self.n_filters = n_filters
+        self.channels_last = channels_last  # must be set before input_shape
+        self.input_shape = input_shape
+        self.kernel_size = kernel_size
+        self.strides = strides
+        self.padding = padding
+        self.init = init
+        self.groups = groups
+
+        if len(kernel_size) != self.dimensions:
+            raise ValidationError(
+                f"Kernel dimensions ({len(kernel_size)}) does not match "
+                f"input dimensions ({self.dimensions})",
+                attr="kernel_size",
+            )
+        if len(strides) != self.dimensions:
+            raise ValidationError(
+                f"Stride dimensions ({len(strides)}) does not match "
+                f"input dimensions ({self.dimensions})",
+                attr="strides",
+            )
+        if not isinstance(init, Distribution):
+            if init.shape != self.kernel_shape:
+                raise ValidationError(
+                    f"Kernel shape {init.shape} does not match "
+                    f"expected shape {self.kernel_shape}",
+                    attr="init",
+                )
+
+        in_channels = self.input_shape.n_channels
+        if groups > in_channels:
+            raise ValidationError(
+                f"Groups ({groups}) cannot be greater than "
+                f"the number of input channels ({in_channels})",
+                attr="groups",
+            )
+        if in_channels % groups != 0 or self.n_filters % groups != 0:
+            raise ValidationError(
+                f"Both the number of input channels ({in_channels}) and filters "
+                f"({self.n_filters}) must be evenly divisible by ``groups`` ({groups})",
+                attr="groups",
+            )
+
+    @property
+    def _argreprs(self):
+        argreprs = [
+            f"n_filters={self.n_filters!r}",
+            f"input_shape={self.input_shape.shape}",
+        ]
+        if self.kernel_size != (3, 3):
+            argreprs.append(f"kernel_size={self.kernel_size!r}")
+        if self.strides != (1, 1):
+            argreprs.append(f"strides={self.strides!r}")
+        if self.padding != "valid":
+            argreprs.append(f"padding={self.padding!r}")
+        if self.channels_last is not True:
+            argreprs.append(f"channels_last={self.channels_last!r}")
+        if self.groups != 1:
+            argreprs.append(f"groups={self.groups!r}")
+        return argreprs
+
+    def sample(self, rng=np.random):
+        if isinstance(self.init, Distribution):
+            # we sample this way so that any variancescaling distribution based
+            # on n/d is scaled appropriately
+            kernel = [
+                self.init.sample(
+                    self.input_shape.n_channels // self.groups, self.n_filters, rng=rng
+                )
+                for _ in range(np.prod(self.kernel_size))
+            ]
+            kernel = np.reshape(kernel, self.kernel_shape)
+        else:
+            kernel = np.array(self.init, dtype=rc.float_dtype)
+        return kernel
+
+    @property
+    def kernel_shape(self):
+        """Full shape of kernel."""
+        return self.kernel_size + (
+            self.input_shape.n_channels // self.groups,
+            self.n_filters,
+        )
+
+    @property
+    def size_in(self):
+        return self.input_shape.size
+
+    @property
+    def size_out(self):
+        return self.output_shape.size
+
+    @property
+    def dimensions(self):
+        """Dimensionality of convolution."""
+        return self.input_shape.dimensions
+
+    def _forward_shape(self, input_spatial_shape, n_filters):
+        output_shape = np.array(input_spatial_shape, dtype=rc.float_dtype)
+        if self.padding == "valid":
+            output_shape -= self.kernel_size
+            output_shape += 1
+        output_shape /= self.strides
+        output_shape = tuple(np.ceil(output_shape).astype(rc.int_dtype))
+
+        return ChannelShape.from_space_and_channels(
+            output_shape, n_filters, channels_last=self.channels_last
+        )
+
+
+class Convolution(_ConvolutionBase):
     """An N-dimensional convolutional transform.
 
     The dimensionality of the convolution is determined by the input shape.
@@ -348,11 +485,10 @@ class Convolution(Transform):
     Parameters
     ----------
     n_filters : int
-        The number of convolutional filters to apply
+        The number of convolutional filters to apply.
     input_shape : tuple of int or `.ChannelShape`
         Shape of the input signal to the convolution; e.g.,
-        ``(height, width, channels)`` for a 2D convolution with
-        ``channels_last=True``.
+        ``(height, width, channels)`` for a 2D convolution with ``channels_last=True``.
     kernel_size : tuple of int, optional
         Size of the convolutional kernels (1 element for a 1D convolution,
         2 for a 2D convolution, etc.).
@@ -371,25 +507,19 @@ class Convolution(Transform):
         ``(28, 28, 3)``).  ``False`` means that channels are the first
         dimension (e.g., ``(3, 28, 28)``).
     init : `.Distribution` or `~numpy:numpy.ndarray`, optional
-        A predefined kernel with shape
-        ``kernel_size + (input_channels, n_filters)``, or a ``Distribution``
-        that will be used to initialize the kernel.
+        A predefined kernel with shape ``kernel_size + (input_channels, n_filters)``,
+        or a ``Distribution`` that will be used to initialize the kernel.
+    groups : int, optional
+        The number of groups in which to split the input/output channels for mixing.
+        Output channels only depend on input channels within the same group; the number
+        of each of these channels must be divisible by ``groups``. For depthwise
+        convolution, use ``groups == input_shape.n_channels == n_filters``.
 
     Notes
     -----
     As is typical in neural networks, this is technically correlation rather
     than convolution (because the kernel is not flipped).
     """
-
-    n_filters = IntParam("n_filters", low=1)
-    input_shape = ChannelShapeParam("input_shape", low=1)
-    kernel_size = ShapeParam("kernel_size", low=1)
-    strides = ShapeParam("strides", low=1)
-    padding = EnumParam("padding", values=("same", "valid"))
-    channels_last = BoolParam("channels_last")
-    init = DistOrArrayParam("init")
-
-    _param_init_order = ["channels_last", "input_shape"]
 
     def __init__(
         self,
@@ -400,100 +530,162 @@ class Convolution(Transform):
         padding="valid",
         channels_last=True,
         init=Uniform(-1, 1),
+        groups=1,
     ):
-        super().__init__()
+        super().__init__(
+            n_filters=n_filters,
+            input_shape=input_shape,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            channels_last=channels_last,
+            init=init,
+            groups=groups,
+        )
 
-        self.n_filters = n_filters
-        self.channels_last = channels_last  # must be set before input_shape
-        self.input_shape = input_shape
-        self.kernel_size = kernel_size
-        self.strides = strides
-        self.padding = padding
-        self.init = init
-
-        if len(kernel_size) != self.dimensions:
-            raise ValidationError(
-                "Kernel dimensions (%d) do not match input dimensions (%d)"
-                % (len(kernel_size), self.dimensions),
-                attr="kernel_size",
-            )
-        if len(strides) != self.dimensions:
-            raise ValidationError(
-                "Stride dimensions (%d) do not match input dimensions (%d)"
-                % (len(strides), self.dimensions),
-                attr="strides",
-            )
-        if not isinstance(init, Distribution):
-            if init.shape != self.kernel_shape:
-                raise ValidationError(
-                    "Kernel shape %s does not match expected shape %s"
-                    % (init.shape, self.kernel_shape),
-                    attr="init",
-                )
-
-    @property
-    def _argreprs(self):
-        argreprs = [
-            "n_filters=%r" % (self.n_filters,),
-            "input_shape=%s" % (self.input_shape.shape,),
-        ]
-        if self.kernel_size != (3, 3):
-            argreprs.append("kernel_size=%r" % (self.kernel_size,))
-        if self.strides != (1, 1):
-            argreprs.append("strides=%r" % (self.strides,))
-        if self.padding != "valid":
-            argreprs.append("padding=%r" % (self.padding,))
-        if self.channels_last is not True:
-            argreprs.append("channels_last=%r" % (self.channels_last,))
-        return argreprs
-
-    def sample(self, rng=np.random):
-        if isinstance(self.init, Distribution):
-            # we sample this way so that any variancescaling distribution based
-            # on n/d is scaled appropriately
-            kernel = [
-                self.init.sample(self.input_shape.n_channels, self.n_filters, rng=rng)
-                for _ in range(np.prod(self.kernel_size))
-            ]
-            kernel = np.reshape(kernel, self.kernel_shape)
-        else:
-            kernel = np.array(self.init, dtype=rc.float_dtype)
-        return kernel
-
-    @property
-    def kernel_shape(self):
-        """Full shape of kernel."""
-        return self.kernel_size + (self.input_shape.n_channels, self.n_filters)
-
-    @property
-    def size_in(self):
-        return self.input_shape.size
-
-    @property
-    def size_out(self):
-        return self.output_shape.size
-
-    @property
-    def dimensions(self):
-        """Dimensionality of convolution."""
-        return self.input_shape.dimensions
+        if self.padding == "valid":
+            for i in range(self.dimensions):
+                if self.kernel_size[i] > self.input_shape.spatial_shape[i]:
+                    raise ValidationError(
+                        f"Kernel size for spatial dimension {i} "
+                        f"({self.kernel_size[i]}) exceeds the spatial size of that "
+                        f"dimension ({self.input_shape.spatial_shape[i]}). With the "
+                        "requested 'valid' padding, this will result in empty output.",
+                        attr="padding",
+                        obj=self,
+                    )
 
     @property
     def output_shape(self):
         """Output shape after applying convolution to input."""
-        output_shape = np.array(self.input_shape.spatial_shape, dtype=rc.float_dtype)
-        if self.padding == "valid":
-            output_shape -= self.kernel_size
-            output_shape += 1
-        output_shape /= self.strides
-        output_shape = tuple(np.ceil(output_shape).astype(rc.int_dtype))
-        output_shape = (
-            output_shape + (self.n_filters,)
-            if self.channels_last
-            else (self.n_filters,) + output_shape
+        return self._forward_shape(self.input_shape.spatial_shape, self.n_filters)
+
+
+class ConvolutionTranspose(_ConvolutionBase):
+    """An N-dimensional transposed convolutional transform.
+
+    This performs the transpose operation of `.Convolution`. The ``kernel_size``,
+    ``strides``, and ``padding`` parameters all act as in `.Convolution`, so this
+    transform will be the transpose of a `.Convolution` transform with those
+    parameters. The ``n_filters`` and ``input_shape`` parameters are relative to *this*
+    transform. The output shape is ambiguous, and can thus be specified (i.e. with
+    `.Convolution`, there can be more than one input shape that produces the same output
+    shape, so here, there are multiple valid output shapes for some input shapes).
+
+    The dimensionality of the transpose convolution is determined by the input shape.
+
+    .. versionadded:: 3.2.0
+
+    Parameters
+    ----------
+    n_filters : int
+        The number of channels in the *output* of this transform.
+    input_shape : tuple of int or `.ChannelShape`
+        Shape of the input signal to this transform; e.g.,
+        ``(height, width, channels)`` for a 2D convolution with ``channels_last=True``.
+    output_shape : tuple of int or `.ChannelShape`, optional
+        Shape of the output signal of this transform; e.g.,
+        ``(output_height, output_width, n_filters)`` for a 2D convolution with
+        ``channels_last=True``. Defaults to the smallest valid output shape.
+    kernel_size : tuple of int, optional
+        Size of the convolutional kernels (1 element for a 1D convolution,
+        2 for a 2D convolution, etc.).
+    strides : tuple of int, optional
+        Stride of the convolution (1 element for a 1D convolution, 2 for
+        a 2D convolution, etc.).
+    padding : ``"same"`` or ``"valid"``, optional
+        Padding method for corresponding `.Convolution`.
+    channels_last : bool, optional
+        If ``True`` (default), the channels are the last dimension in the input
+        signal (e.g., a 28x28 image with 3 channels would have shape
+        ``(28, 28, 3)``).  ``False`` means that channels are the first
+        dimension (e.g., ``(3, 28, 28)``).
+    init : `.Distribution` or `~numpy:numpy.ndarray`, optional
+        A predefined kernel with shape ``kernel_size + (input_channels, n_filters)``,
+        or a ``Distribution`` that will be used to initialize the kernel.
+
+    Notes
+    -----
+    As is typical in neural networks, this is technically correlation rather
+    than convolution (because the kernel is not flipped).
+    """
+
+    output_shape = ChannelShapeParam("output_shape", low=1)
+
+    _param_init_order = ["channels_last", "input_shape"]
+
+    def __init__(
+        self,
+        n_filters,
+        input_shape,
+        output_shape=None,
+        kernel_size=(3, 3),
+        strides=(1, 1),
+        padding="valid",
+        channels_last=True,
+        init=Uniform(-1, 1),
+    ):
+        super().__init__(
+            n_filters=n_filters,
+            input_shape=input_shape,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            channels_last=channels_last,
+            init=init,
         )
 
-        return ChannelShape(output_shape, channels_last=self.channels_last)
+        self.output_shape = (
+            self._reverse_shape(self.input_shape.spatial_shape, self.n_filters)
+            if output_shape is None
+            else output_shape
+        )
+
+        if self.output_shape.dimensions != self.input_shape.dimensions:
+            raise ValidationError(
+                f"The number of dimensions ({self.output_shape.dimensions}) in the "
+                f"provided `output_shape` {self.output_shape} does not match the number"
+                f" of dimensions ({self.input_shape.dimensions}) in the input shape.",
+                attr="output_shape",
+                obj=self,
+            )
+        if self.output_shape.n_channels != self.n_filters:
+            raise ValidationError(
+                f"The number of channels in the provided `output_shape` "
+                f"{self.output_shape} does not match the requested number "
+                f"of filters ({self.n_filters}).",
+                attr="output_shape",
+                obj=self,
+            )
+
+        expected_input_shape = self._forward_shape(
+            self.output_shape.spatial_shape, self.input_shape.n_channels
+        )
+        if self.input_shape != expected_input_shape:
+            raise ValidationError(
+                f"The provided `output_shape` {self.output_shape} would not produce "
+                f"`input_shape` {self.input_shape} in a forward Convolution, "
+                f"and is therefore not a valid output shape.",
+                attr="output_shape",
+                obj=self,
+            )
+
+    @property
+    def _argreprs(self):
+        argreprs = super()._argreprs
+        argreprs.insert(2, f"output_shape={self.output_shape.shape}")
+        return argreprs
+
+    def _reverse_shape(self, input_spatial_shape, n_filters):
+        output_shape = np.array(input_spatial_shape, dtype=rc.int_dtype)
+        output_shape = 1 + (output_shape - 1) * self.strides
+        if self.padding == "valid":
+            output_shape += self.kernel_size
+            output_shape -= 1
+
+        return ChannelShape.from_space_and_channels(
+            output_shape, n_filters, channels_last=self.channels_last
+        )
 
 
 class ChannelShape:
@@ -503,13 +695,37 @@ class ChannelShape:
 
     Parameters
     ----------
-    shape : tuple of int
+    shape : iterable of int
         Signal shape
     channels_last : bool, optional
         If True (default), the last item in ``shape`` represents the channels,
         and the rest are spatial dimensions. Otherwise, the first item in
         ``shape`` is the channel dimension.
     """
+
+    @classmethod
+    def from_space_and_channels(cls, spatial_shape, n_channels, channels_last=True):
+        """Create a ChannelShape from a spatial shape and number of channels.
+
+        .. versionadded:: 3.2.0
+
+        Parameters
+        ----------
+        spatial_shape : iterable of int
+            The spatial part of the shape (not including channels).
+        n_channels : int
+            The number of channels.
+        channels_last : bool, optional
+            If True (default), the last item in ``shape`` represents the channels,
+            and the rest are spatial dimensions. Otherwise, the first item in
+            ``shape`` is the channel dimension.
+        """
+        shape = (
+            tuple(spatial_shape) + (n_channels,)
+            if channels_last
+            else (n_channels,) + tuple(spatial_shape)
+        )
+        return cls(shape, channels_last=channels_last)
 
     def __init__(self, shape, channels_last=True):
         self.shape = tuple(shape)
@@ -526,18 +742,19 @@ class ChannelShape:
         return hash((self.shape, self.channels_last))
 
     def __repr__(self):
-        return "%s(shape=%s, channels_last=%s)" % (
-            type(self).__name__,
-            self.shape,
-            self.channels_last,
+        return (
+            f"{type(self).__name__}(shape={self.shape}, "
+            f"channels_last={self.channels_last})"
         )
 
     def __str__(self):
         """Tuple-like string with channel position marked with 'ch'."""
         spatial = [str(s) for s in self.spatial_shape]
-        channel = ["ch=%d" % self.n_channels]
-        return "(%s)" % ", ".join(
-            spatial + channel if self.channels_last else channel + spatial
+        channel = [f"ch={self.n_channels}"]
+        return (
+            "("
+            + ", ".join(spatial + channel if self.channels_last else channel + spatial)
+            + ")"
         )
 
     @property
@@ -604,3 +821,8 @@ class NoTransform(Transform):
     def size_out(self):
         """Expected size of output from transform."""
         return self._size_in
+
+
+# aliases
+Conv = Convolution
+ConvTranspose = ConvolutionTranspose

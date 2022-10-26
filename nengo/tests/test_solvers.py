@@ -11,11 +11,7 @@ import pytest
 import nengo
 from nengo.dists import Choice, Uniform, UniformHypersphere
 from nengo.exceptions import BuildError, ValidationError
-from nengo.utils.numpy import rms, norm
-from nengo.utils.stdlib import Timer
-from nengo.utils.testing import signals_allclose
 from nengo.solvers import (
-    lstsq,
     Lstsq,
     LstsqDrop,
     LstsqL1,
@@ -27,7 +23,11 @@ from nengo.solvers import (
     NnlsL2,
     NnlsL2nz,
     NoSolver,
+    lstsq,
 )
+from nengo.utils.numpy import norm, rms
+from nengo.utils.stdlib import Timer
+from nengo.utils.testing import signals_allclose
 
 
 class Factory:
@@ -46,15 +46,15 @@ class Factory:
     def __str__(self):
         try:
             inst = self()
-        except Exception:
-            inst = "%s(args=%s, kwargs=%s)" % (self.klass, self.args, self.kwargs)
+        except Exception:  # pylint: disable = broad-except
+            inst = f"{self.klass}(args={self.args}, kwargs={self.kwargs})"
         return str(inst)
 
     def __repr__(self):
         try:
             inst = self()
-        except Exception:
-            inst = "<%r instance>" % (self.klass.__name__)
+        except Exception:  # pylint: disable = broad-except
+            inst = f"<{self.klass.__name__!r} instance>"
         return repr(inst)
 
 
@@ -132,7 +132,7 @@ def test_decoder_solver(Solver, plt, rng, allclose):
 
     plt.plot(test, np.zeros_like(test), "k--")
     plt.plot(test, test - est)
-    plt.title("relative RMSE: %0.2e" % rel_rmse)
+    plt.title(f"relative RMSE: {rel_rmse:0.2e}")
 
     atol = (
         0.1 if isinstance(solver, (LstsqNoise, LstsqDrop, LstsqMultNoise)) else 1.5e-2
@@ -188,9 +188,9 @@ def test_subsolvers(Solver, seed, rng, tol=1e-2):
     A, b = get_system(2000, 100, 5, rng=rng)
     x0, _ = Solver(solver=lstsq.Cholesky())(A, b, rng=get_rng())
 
-    subsolvers = [lstsq.Conjgrad, lstsq.BlockConjgrad]
+    subsolvers = [lstsq.Conjgrad(tol=tol), lstsq.BlockConjgrad(tol=tol)]
     for subsolver in subsolvers:
-        x, _ = Solver(solver=subsolver(tol=tol))(A, b, rng=get_rng())
+        x, _ = Solver(solver=subsolver)(A, b, rng=get_rng())
         rel_rmse = rms(x - x0) / rms(x0)
         assert rel_rmse < 5 * tol
         # the above 5 * tol is just a heuristic; the main purpose of this
@@ -274,7 +274,7 @@ def test_nnls(Solver, plt, rng, allclose):
     pytest.importorskip("scipy.optimize")
 
     A, x = get_system(500, 100, 1, rng=rng, sort=True)
-    y = x ** 2
+    y = x**2
 
     d, _ = Solver()(A, y, rng)
     yest = np.dot(A, d)
@@ -346,21 +346,25 @@ def test_subsolvers_L2(rng, allclose):
         logging.info("info: %s", info)
 
     for solver, x in zip(solvers, xs):
-        assert allclose(x0, x, atol=1e-5, rtol=1e-3), "Solver %s" % solver.__name__
+        assert allclose(x0, x, atol=1e-5, rtol=1e-3), f"Solver {solver.__name__}"
 
 
+@pytest.mark.slow
 @pytest.mark.filterwarnings("ignore:Objective did not converge.")
-def test_subsolvers_L1(rng):
+def test_subsolvers_L1(rng, allclose):
     pytest.importorskip("sklearn")
 
     A, B = get_system(m=2000, n=1000, d=10, rng=rng)
 
     l1 = 1e-4
     with Timer() as t:
-        LstsqL1(l1=l1, l2=0)(A, B, rng=rng)
+        x, info = LstsqL1(l1=l1, l2=0)(A, B, rng=rng)
     logging.info("duration: %0.3f", t.duration)
 
-    # TODO: add assertions
+    Ax = np.dot(A, x)
+    assert rms(Ax - B) < 2e-2
+    assert allclose(Ax, B, atol=0.2, record_rmse=False)
+    assert np.max(info["rmses"]) < 3e-2
 
 
 @pytest.mark.slow
@@ -393,11 +397,9 @@ def test_compare_solvers(Simulator, plt, seed, allclose):
         names = []
         for solver in decoder_solvers + weight_solvers:
             b = nengo.Ensemble(N, dimensions=1, seed=seed + 1)
-            nengo.Connection(a, b, solver=solver)
+            nengo.Connection(a, b, solver=solver, transform=1)
             probes.append(nengo.Probe(b))
-            names.append(
-                "%s(%s)" % (type(solver).__name__, "w" if solver.weights else "d")
-            )
+            names.append(f"{type(solver).__name__}({'w' if solver.weights else 'd'})")
 
     with Simulator(model) as sim:
         sim.run(tfinal)
@@ -423,7 +425,7 @@ def test_compare_solvers(Simulator, plt, seed, allclose):
     )
 
     for name, c in zip(names, close):
-        assert c, "Solver '%s' does not meet tolerances" % name
+        assert c, f"Solver '{name}' does not meet tolerances"
 
 
 @pytest.mark.slow
@@ -483,7 +485,7 @@ def test_regularization(Simulator, NonDirectNeuronType, plt):
             plt.contourf(X, Y, Z, levels=np.linspace(Z.min(), Z.max(), 21))
             plt.xlabel("filter")
             plt.ylabel("reg")
-            plt.title("%s (N=%d)" % (Solver.__name__, n_neurons))
+            plt.title(f"{Solver.__name__}, (N={n_neurons})")
 
     # TODO: add assertions
 

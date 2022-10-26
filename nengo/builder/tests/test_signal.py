@@ -18,11 +18,16 @@ def test_signaldict(allclose):
 
     # Both __getitem__ and __setitem__ raise KeyError
     with pytest.raises(KeyError):
-        signaldict[scalar]
+        print(signaldict[scalar])
     with pytest.raises(KeyError):
         signaldict[scalar] = np.array(1.0)
 
     signaldict.init(scalar)
+
+    # tests repeat init
+    with pytest.raises(SignalError, match="Cannot add signal twice"):
+        signaldict.init(scalar)
+
     assert allclose(signaldict[scalar], np.array(1.0))
     # __getitem__ handles scalars
     assert signaldict[scalar].shape == ()
@@ -61,7 +66,7 @@ def test_signaldict(allclose):
     # __str__ pretty-prints signals and current values
     # Order not guaranteed for dicts, so we have to loop
     for k in signaldict:
-        assert "%s %s" % (repr(k), repr(signaldict[k])) in str(signaldict)
+        assert f"{repr(k)} {repr(signaldict[k])}" in str(signaldict)
 
 
 def test_signaldict_reset(allclose):
@@ -176,16 +181,16 @@ def test_signal_slicing(rng):
     a = Signal(x.copy())
     b = Signal(y.copy())
 
-    for i in range(100):
+    for _ in range(100):
         si0, si1 = rng.randint(0, len(slices), size=2)
         s0, s1 = slices[si0], slices[si1]
         assert np.array_equiv(a[s0].initial_value, x[s0])
         assert np.array_equiv(b[s0, s1].initial_value, y[s0, s1])
 
     with pytest.raises(ValueError):
-        a[[0, 2]]
+        print(a[[0, 2]])
     with pytest.raises(ValueError):
-        b[[0, 1], [3, 4]]
+        print(b[[0, 1], [3, 4]])
 
 
 def test_commonsig_readonly():
@@ -216,6 +221,25 @@ def test_signal_offset():
     assert s[1:].offset == value.strides[1]
 
 
+def test_may_share_memory(rng):
+    def may_share_memory(a, b):
+        a_b, b_a = a.may_share_memory(b), b.may_share_memory(a)
+        assert a_b == b_a  # check commutative property
+        return a_b
+
+    sig_a = Signal(initial_value=rng.rand(3, 4))
+    sig_b = Signal(initial_value=rng.rand(3, 4))
+    assert may_share_memory(sig_a, sig_a)
+    assert may_share_memory(sig_b, sig_b)
+    assert not may_share_memory(sig_a, sig_b)
+
+    assert may_share_memory(sig_a[0:2, :], sig_a)
+    assert may_share_memory(sig_a[0:2, :], sig_a[1:3, :])
+    assert not may_share_memory(sig_a[0, :], sig_a[1, :])
+    assert not may_share_memory(sig_a[0:2, :], sig_b)
+    assert not may_share_memory(sig_a[0:2, :], sig_b[1:3, :])
+
+
 def make_signal(sig_type, shape, indices, data):
     dense = np.zeros(shape)
     dense[indices[:, 0], indices[:, 1]] = data
@@ -229,7 +253,7 @@ def make_signal(sig_type, shape, indices, data):
 
 
 @pytest.mark.parametrize("sig_type", ("dense", "sparse_scipy", "sparse_nengo"))
-def test_signal_initial_value(sig_type, tmpdir, allclose):
+def test_signal_initial_value(sig_type, tmp_path, allclose):
     if sig_type == "sparse_scipy":
         pytest.importorskip("scipy.sparse")
 
@@ -253,7 +277,7 @@ def test_signal_initial_value(sig_type, tmpdir, allclose):
         sig.initial_value = sig.initial_value
 
     # check signal pickles correctly
-    pkl_path = str(tmpdir.join("tmp.pkl"))
+    pkl_path = tmp_path / "tmp.pkl"
     with open(pkl_path, "wb") as f:
         pickle.dump(sig, f)
 
@@ -276,7 +300,7 @@ def test_signal_slice_reshape(sig_type):
     if sig_type == "sparse_scipy":
         pytest.importorskip("scipy.sparse")
 
-    sig, dense = make_signal(
+    sig, _ = make_signal(
         sig_type,
         shape=(3, 3),
         indices=np.asarray([[0, 0], [0, 2], [1, 1], [2, 2]]),
@@ -291,7 +315,7 @@ def test_signal_slice_reshape(sig_type):
         assert sig.may_share_memory(sig_slice)
     else:
         with pytest.raises(SignalError, match="sparse Signal"):
-            sig[:2]
+            print(sig[:2])
 
     # check reshaping
     if sig_type == "dense":
@@ -309,7 +333,7 @@ def test_signal_properties(sig_type):
     if sig_type == "sparse_scipy":
         pytest.importorskip("scipy.sparse")
 
-    sig, dense = make_signal(
+    sig, _ = make_signal(
         sig_type,
         shape=(3, 3),
         indices=np.asarray([[0, 0], [0, 2], [1, 1], [2, 2]]),

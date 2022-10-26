@@ -13,9 +13,9 @@ import numpy as np
 import nengo.utils.least_squares_solvers as lstsq
 from nengo.params import BoolParam, FrozenObject, NdarrayParam, NumberParam, Parameter
 from nengo.utils.least_squares_solvers import (
+    LeastSquaresSolverParam,
     format_system,
     rmses,
-    LeastSquaresSolverParam,
 )
 
 
@@ -87,7 +87,7 @@ class Solver(FrozenObject):
 class SolverParam(Parameter):
     """A parameter in which the value is a `.Solver` instance."""
 
-    def coerce(self, instance, solver):
+    def coerce(self, instance, solver):  # pylint: disable=arguments-renamed
         self.check_type(instance, solver, Solver)
         return super().coerce(instance, solver)
 
@@ -375,7 +375,7 @@ class LstsqDrop(Solver):
 
     def __call__(self, A, Y, rng=np.random):
         tstart = time.time()
-        Y, m, n, _, matrix_in = format_system(A, Y)
+        Y, _, _, _, matrix_in = format_system(A, Y)
 
         # solve for coefficients using standard solver
         X, info0 = self.solver1(A, Y, rng=rng)
@@ -409,22 +409,21 @@ def _add_nnls_param_docs(l2=False):
         Amount of regularization, as a fraction of the neuron activity.\
     """
 
-    docstring = """
+    docstring = f"""
     .. note:: Requires
               `SciPy <https://docs.scipy.org/doc/scipy/reference/>`_.
 
     Parameters
     ----------
     weights : bool, optional
-        If False, solve for decoders. If True, solve for weights.{reg_param}
+        If False, solve for decoders. If True, solve for weights.\
+{reg_param if l2 else ""}
 
     Attributes
-    ----------{reg_attr}
+    ----------{reg_attr if l2 else ""}
     weights : bool
         If False, solve for decoders. If True, solve for weights.
-    """.format(
-        reg_param=reg_param if l2 else "", reg_attr=reg_attr if l2 else ""
-    )
+    """
 
     def _actually_add_nnls_param_docs(cls):
         cls.__doc__ += docstring
@@ -457,7 +456,7 @@ class Nnls(Solver):
         import scipy.optimize  # pylint: disable=import-outside-toplevel
 
         tstart = time.time()
-        Y, m, n, _, matrix_in = format_system(A, Y)
+        Y, _, n, _, matrix_in = format_system(A, Y)
         d = Y.shape[1]
 
         X = np.zeros((n, d))
@@ -491,12 +490,12 @@ class NnlsL2(Nnls):
         import scipy.optimize  # pylint: disable=import-outside-toplevel
 
         tstart = time.time()
-        Y, m, n, _, matrix_in = format_system(A, Y)
+        Y, _, n, _, matrix_in = format_system(A, Y)
         d = Y.shape[1]
 
         # form Gram matrix so we can add regularization
         GA = np.dot(A.T, A)
-        np.fill_diagonal(GA, GA.diagonal() + A.shape[0] * sigma ** 2)
+        np.fill_diagonal(GA, GA.diagonal() + A.shape[0] * sigma**2)
         GY = np.dot(A.T, np.maximum(Y, 0))
         # ^ TODO: why is it better if we clip Y to be positive here?
 

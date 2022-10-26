@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import nengo
+from nengo.exceptions import ValidationError
 from nengo.networks.circularconvolution import circconv, transform_in, transform_out
 from nengo.utils.numpy import rms
 
@@ -56,8 +57,8 @@ def test_input_magnitude(Simulator, seed, rng, dims=16, magnitude=10):
     with Simulator(model) as sim:
         sim.run(0.01)
 
-    error = rms(result - sim.data[res_p][-1]) / (magnitude ** 2)
-    error_bad = rms(result - sim.data[res_p_bad][-1]) / (magnitude ** 2)
+    error = rms(result - sim.data[res_p][-1]) / (magnitude**2)
+    error_bad = rms(result - sim.data[res_p_bad][-1]) / (magnitude**2)
 
     assert error < 0.1
     assert error_bad > 0.1
@@ -93,3 +94,8 @@ def test_old_input_deprecation_warning():
             assert c.A is c.input_a
         with pytest.warns(DeprecationWarning):
             assert c.B is c.input_b
+
+
+def test_transform_in_align_error():
+    with pytest.raises(ValidationError, match="'align' must be either"):
+        transform_in(dims=3, align="badval", invert=False)

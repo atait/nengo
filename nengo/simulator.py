@@ -52,7 +52,7 @@ class Simulator:
     .. testcode::
 
        with nengo.Simulator(nengo.Network(), progress_bar=False) as sim:
-           print('\n'.join("* %s" % op for op in sim.step_order))
+           print('\n'.join(f"* {op}" for op in sim.step_order))
 
     .. testoutput::
 
@@ -77,8 +77,8 @@ class Simulator:
        import difflib
 
        print("".join(difflib.unified_diff(
-           sorted("%s: %s\n" % (type(op).__name__, op.tag) for op in sim1.step_order),
-           sorted("%s: %s\n" % (type(op).__name__, op.tag) for op in sim2.step_order),
+           sorted(f"{type(op).__name__}: {op.tag}\n" for op in sim1.step_order),
+           sorted(f"{type(op).__name__}: {op.tag}\n" for op in sim2.step_order),
            fromfile="sim1",
            tofile="sim2",
            n=0,
@@ -93,7 +93,7 @@ class Simulator:
        --- sim1
        +++ sim2
        @@ -0,0 +1 @@
-       +Copy: <Connection from <Node "Node"> to <Ensemble "Ensemble">>
+       +Copy: <Connection from <Node 'Node'> to <Ensemble 'Ensemble'>>
        @@ -4,0 +6 @@
        +SimProcess: Lowpass(tau=0.005)
 
@@ -156,7 +156,7 @@ class Simulator:
         if model is None:
             self.model = Model(
                 dt=float(dt),
-                label="%s, dt=%f" % (network, dt),
+                label=f"{network}, dt={dt:f}",
                 decoder_cache=get_default_decoder_cache(),
             )
         else:
@@ -201,13 +201,16 @@ class Simulator:
         """Raise a ResourceWarning if we are deallocated while open."""
         if not self.closed:
             warnings.warn(
-                "Simulator with model=%s was deallocated while open. Please "
+                f"Simulator with model={self.model} was deallocated while open. Please "
                 "close simulators manually to ensure resources are properly "
-                "freed." % self.model,
+                "freed.",
                 ResourceWarning,
             )
 
     def __enter__(self):
+        if self.closed:
+            raise SimulatorClosed("Cannot re-open after simulator is closed")
+
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -363,15 +366,15 @@ class Simulator:
         """
         if time_in_seconds < 0:
             raise ValidationError(
-                "Must be positive (got %g)" % (time_in_seconds,), attr="time_in_seconds"
+                f"Must be positive (got {time_in_seconds:g})", attr="time_in_seconds"
             )
 
         steps = int(np.round(float(time_in_seconds) / self.dt))
 
         if steps == 0:
             warnings.warn(
-                "%g results in running for 0 timesteps. Simulator "
-                "still at time %g." % (time_in_seconds, self.time)
+                f"{time_in_seconds} results in running for 0 timesteps. Simulator "
+                f"still at time {self.time}."
             )
         else:
             logger.info(
@@ -403,7 +406,7 @@ class Simulator:
         with ProgressTracker(
             progress_bar, Progress("Simulating", "Simulation", steps)
         ) as pt:
-            for i in range(steps):
+            for _ in range(steps):
                 self.step()
                 pt.total_progress.step()
 
@@ -502,12 +505,3 @@ class SimulationData(Mapping):
 
     def reset(self):
         self._cache.clear()
-
-
-class ProbeDict(SimulationData):
-    def __init__(self, *args, **kwargs):
-        warnings.warn(
-            "ProbeDict has been renamed to SimulationData. This alias "
-            "will be removed in Nengo 3.1."
-        )
-        super().__init__(*args, **kwargs)

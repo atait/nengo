@@ -1,10 +1,53 @@
-from nengo.builder import Builder, Signal
-from nengo.builder.operator import Copy, Reset
+from nengo.builder.builder import Builder
+from nengo.builder.connection import slice_signal
+from nengo.builder.operator import Copy, Operator, Reset
+from nengo.builder.signal import Signal
 from nengo.connection import Connection, LearningRule
 from nengo.ensemble import Ensemble, Neurons
 from nengo.exceptions import BuildError
 from nengo.node import Node
 from nengo.probe import Probe
+
+
+class SimProbe(Operator):
+    """Mark a signal as being probed.
+
+    This performs no computations, but marks ``signal`` as being read. This is
+    necessary for the rare case in which a node with constant output is probed
+    directly without that signal being otherwise used.
+
+    Parameters
+    ----------
+    signal : Signal
+        The probed signal.
+    tag : str, optional
+        A label associated with the operator, for debugging purposes.
+
+    Notes
+    -----
+    1. sets ``[]``
+    2. incs ``[]``
+    3. reads ``[signal]``
+    4. updates ``[]``
+    """
+
+    def __init__(self, signal, tag=None):
+        super().__init__(tag=tag)
+        self.sets = []
+        self.incs = []
+        self.reads = [signal]
+        self.updates = []
+
+    @property
+    def signal(self):
+        """The probed signal"""
+        return self.reads[0]
+
+    def make_step(self, signals, dt, rng):
+        def step():
+            pass
+
+        return step
 
 
 def conn_probe(model, probe):
@@ -43,16 +86,14 @@ def signal_probe(model, key, probe):
 
     try:
         sig = model.sig[probe.obj][key]
-    except IndexError:
-        raise BuildError("Attribute %r is not probeable on %s." % (key, probe.obj))
+    except (IndexError, KeyError) as e:
+        raise BuildError(f"Attribute '{key}' is not probeable on {probe.obj}.") from e
 
     if sig is None:
-        raise BuildError(
-            "Attribute %r on %s is None, cannot be probed" % (key, probe.obj)
-        )
+        raise BuildError(f"Attribute '{key}' on {probe.obj} is None, cannot be probed")
 
     if probe.slice is not None:
-        sig = sig[probe.slice]
+        sig = slice_signal(model, sig, probe.slice)
 
     if probe.synapse is None:
         model.sig[probe]["in"] = sig
@@ -104,16 +145,17 @@ def build_probe(model, probe):
     # find the right parent class in `objtypes`, using `isinstance`
     for nengotype, probeables in probemap.items():
         if isinstance(probe.obj, nengotype):
+            key = probeables.get(probe.attr, probe.attr)
             break
     else:
-        raise BuildError("Type %r is not probeable" % type(probe.obj).__name__)
+        raise BuildError(f"Type '{type(probe.obj).__name__}' is not probeable")
 
-    key = probeables.get(probe.attr, probe.attr)
     if key is None:
         conn_probe(model, probe)
     else:
         signal_probe(model, key, probe)
 
+    model.add_op(SimProbe(model.sig[probe]["in"]))
     model.probes.append(probe)
 
     # Simulator will fill this list with probe data during simulation

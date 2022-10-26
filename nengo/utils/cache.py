@@ -3,7 +3,9 @@
 Used by nengo.rc in order to present file sizes to users in
 human-readable formats.
 
-This code adapted from https://goo.gl/zeJZl under the MIT License.
+This code adapted from
+https://web.archive.org/web/20200817051754/http://code.activestate.com/recipes/578019-bytes-to-human-human-to-bytes-converter/?in=user-4178764
+under the MIT License.
 """
 
 
@@ -64,8 +66,8 @@ def human2bytes(s):
     assert letter in symbols
     num = float(num)
     prefix = {symbols[0]: 1}
-    for i, s in enumerate(symbols[1:]):
-        prefix[s] = 1 << (i + 1) * 10
+    for i, symbol in enumerate(symbols[1:]):
+        prefix[symbol] = 1 << (i + 1) * 10
     return int(num * prefix[letter])
 
 

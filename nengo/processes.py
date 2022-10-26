@@ -7,7 +7,7 @@ from nengo.dists import DistributionParam, Gaussian
 from nengo.exceptions import ValidationError
 from nengo.params import BoolParam, DictParam, EnumParam, NdarrayParam, NumberParam
 from nengo.synapses import LinearFilter, Lowpass, SynapseParam
-from nengo.utils.numpy import array_hash, is_number, rfftfreq, clip
+from nengo.utils.numpy import array_hash, clip, is_number, rfftfreq
 
 
 class WhiteNoise(Process):
@@ -83,7 +83,7 @@ class FilteredNoise(Process):
         synapse=Lowpass(tau=0.005),
         dist=Gaussian(mean=0, std=1),
         scale=True,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(default_size_in=0, **kwargs)
         self.synapse = synapse
@@ -184,7 +184,7 @@ class WhiteSignal(Process):
         if self.high > nyquist_cutoff:
             raise ValidationError(
                 "High must not exceed the Nyquist frequency "
-                "for the given dt (%0.3f)" % nyquist_cutoff,
+                f"for the given dt ({nyquist_cutoff:0.3f})",
                 attr="high",
                 obj=self,
             )
@@ -267,15 +267,14 @@ class PiecewiseDataParam(DictParam):
 
     equatable = True
 
-    def coerce(self, instance, data):
+    def coerce(self, instance, data):  # pylint: disable=arguments-renamed
         data = super().coerce(instance, data)
 
         size_out = None
         for time, value in data.items():
             if not is_number(time):
                 raise ValidationError(
-                    "Keys must be times (floats or ints), "
-                    "not %r" % type(time).__name__,
+                    f"Keys must be times (floats or ints), not '{type(time).__name__}'",
                     attr="data",
                     obj=instance,
                 )
@@ -284,13 +283,13 @@ class PiecewiseDataParam(DictParam):
             if callable(value):
                 try:
                     value = np.ravel(value(time))
-                except Exception:
+                except Exception as e:
                     raise ValidationError(
-                        "callable object for time step %.3f "
-                        "should return a numerical constant" % time,
+                        f"callable object for time step {time:0.3f} "
+                        "should return a numerical constant",
                         attr="data",
                         obj=instance,
-                    )
+                    ) from e
             else:
                 value = np.ravel(value)
                 data[time] = value
@@ -299,7 +298,7 @@ class PiecewiseDataParam(DictParam):
             # make sure this is the same size as previous items
             if size != size_out and size_out is not None:
                 raise ValidationError(
-                    "time %g has size %d instead of %d" % (time, size, size_out),
+                    f"time {time} has size {size} instead of {size_out}",
                     attr="data",
                     obj=instance,
                 )
@@ -419,9 +418,9 @@ class Piecewise(Process):
             self.sp_interpolate = None
             if any(callable(val) for val in self.data.values()):
                 warnings.warn(
-                    "%r interpolation cannot be applied because "
+                    f"'{interpolation}' interpolation cannot be applied because "
                     "a callable was supplied for some piece of the "
-                    "function. Using 'zero' interpolation instead." % (interpolation,)
+                    "function. Using 'zero' interpolation instead."
                 )
                 interpolation = "zero"
             else:
@@ -431,9 +430,9 @@ class Piecewise(Process):
                     self.sp_interpolate = scipy.interpolate
                 except ImportError:
                     warnings.warn(
-                        "%r interpolation cannot be applied because "
+                        f"'{interpolation}' interpolation cannot be applied because "
                         "scipy is not installed. Using 'zero' "
-                        "interpolation instead." % (interpolation,)
+                        "interpolation instead."
                     )
                     interpolation = "zero"
         self.interpolation = interpolation

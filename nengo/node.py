@@ -20,9 +20,9 @@ class OutputParam(Parameter):
 
     def _fn_args_validation_error(self, output, attr, node):
         n_args = 2 if node.size_in > 0 else 1
-        msg = "output function '%s' is expected to accept exactly %d argument" % (
-            output,
-            n_args,
+        msg = (
+            f"output function '{output}' is expected to accept exactly {n_args} "
+            f"argument"
         )
         msg += (
             " (time, as a float)"
@@ -34,7 +34,7 @@ class OutputParam(Parameter):
     def check_ndarray(self, node, output):
         if len(output.shape) > 1:
             raise ValidationError(
-                "Node output must be a vector (got shape %s)" % (output.shape,),
+                f"Node output must be a vector (got shape {output.shape})",
                 attr=self.name,
                 obj=node,
             )
@@ -44,13 +44,13 @@ class OutputParam(Parameter):
             )
         if node.size_out is not None and node.size_out != output.size:
             raise ValidationError(
-                "Size of Node output (%d) does not match "
-                "size_out (%d)" % (output.size, node.size_out),
+                f"Size of Node output ({output.size}) does not match "
+                f"size_out ({node.size_out})",
                 attr=self.name,
                 obj=node,
             )
 
-    def coerce(self, node, output):
+    def coerce(self, node, output):  # pylint: disable=arguments-renamed
         output = super().coerce(node, output)
 
         size_in_set = node.size_in is not None
@@ -86,7 +86,7 @@ class OutputParam(Parameter):
             node.size_out = output.size
         else:
             raise ValidationError(
-                "Invalid node output type %r" % type(output).__name__,
+                f"Invalid node output type '{type(output).__name__}'",
                 attr=self.name,
                 obj=node,
             )
@@ -103,7 +103,7 @@ class OutputParam(Parameter):
             result = np.asarray(result)
             if len(result.shape) > 1:
                 raise ValidationError(
-                    "Node output must be a vector (got shape %s)" % (result.shape,),
+                    f"Node output must be a vector (got shape {result.shape})",
                     attr=self.name,
                     obj=node,
                 )
@@ -185,6 +185,12 @@ class Node(NengoObject):
     output = OutputParam("output", default=None)
     size_in = IntParam("size_in", default=None, low=0, optional=True)
     size_out = IntParam("size_out", default=None, low=0, optional=True)
+
+    _param_init_order = [
+        "size_in",
+        "size_out",
+        "output",
+    ]
 
     def __init__(
         self,

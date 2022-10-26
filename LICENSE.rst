@@ -4,25 +4,28 @@
 Nengo license
 *************
 
-Copyright (c) 2013-2020 Applied Brain Research
+Copyright (c) 2013-2022 Applied Brain Research
 
-Nengo is made available under a proprietary license
-that permits using, copying, sharing, and making derivative works from
-Nengo and its source code for any non-commercial purpose,
-as long as the above copyright notice and this permission notice
-are included in all copies or substantial portions of the software.
+**ABR License**
 
-If you would like to use Nengo commercially,
-licenses can be purchased from Applied Brain Research.
-Please contact info@appliedbrainresearch.com for more information.
+Nengo is made available under a proprietary license, the
+"ABR TECHNOLOGY LICENSE AND USE AGREEMENT" (the "ABR License").
+The main ABR License file is available for download at
+`<https://www.appliedbrainresearch.com/license>`_.
+The entire contents of this ``LICENSE.rst`` file, including any
+terms and conditions herein, form part of the ABR License.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Commercial Use Licenses are available to purchase for a yearly fee.
+Academic and Personal Use Licenses for Nengo are available at
+no cost.
+Both types of licences can be obtained from the
+ABR store at `<https://www.appliedbrainresearch.com/store>`_.
+
+If you have any sales questions,
+please contact `<sales@appliedbrainresearch.com>`_.
+If you have any technical support questions, please post them on the ABR
+community forums at `<https://forum.nengo.ai/>`_ or contact
+`<support@appliedbrainresearch.com>`_.
 
 Licensed code
 =============
@@ -31,17 +34,17 @@ Nengo imports or vendorizes several open source libraries.
 
 * `NumPy <https://numpy.org/>`_ - Used under
   `BSD license <https://numpy.org/doc/stable/license.html>`__
-* `Sphinx <https://www.sphinx-doc.org/>`_ - Used under
+* `Sphinx <https://www.sphinx-doc.org/en/master/>`_ - Used under
   `BSD license <https://github.com/sphinx-doc/sphinx/blob/master/LICENSE>`__
 * `numpydoc <https://github.com/numpy/numpydoc>`_ - Used under
-  `BSD license <https://github.com/numpy/numpydoc/blob/master/LICENSE.txt>`__
+  `BSD license <https://github.com/numpy/numpydoc/blob/main/LICENSE.txt>`__
 * `matplotlib <https://matplotlib.org/>`_ - Used under
   `modified PSF license <https://matplotlib.org/users/license.html>`__
 * `IPython <http://ipython.org/>`_ - Used under
   `BSD license <https://github.com/ipython/ipython/blob/master/COPYING.rst>`__
 * `pytest <https://docs.pytest.org/en/latest/>`_ - Used under
   `MIT license <https://docs.pytest.org/en/latest/license.html>`__
-* `portalocker <http://portalocker.readthedocs.io/>`_ - Used under
+* `portalocker <https://portalocker.readthedocs.io/en/latest/>`_ - Used under
   `PSF license version 2 <https://github.com/WoLpH/portalocker/blob/develop/LICENSE>`__
 
 Nengo also includes code modified from other libraries.

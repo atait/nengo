@@ -1,23 +1,34 @@
 import os
+import struct
 
 import numpy as np
-from numpy.testing import assert_equal
 import pytest
+from numpy.testing import assert_equal
 
-import nengo.utils.nco as nco
+from nengo.exceptions import CacheIOError
+from nengo.utils import nco
 from nengo.utils.nco import Subfile
 
 
-@pytest.fixture
-def data():
+@pytest.fixture(name="data")
+def fixture_data():
     return "0123456789\n123456789"
 
 
-@pytest.fixture
-def testfile(data, tmpdir):
-    f = tmpdir.join("file.txt")
-    f.write(data)
+@pytest.fixture(name="testfile")
+def fixture_testfile(data, tmp_path):
+    f = tmp_path / "file.txt"
+    f.write_text(data)
     return f
+
+
+def write_custom_nco_header(fileobj, magic_string="NCO", version=0):
+    magic_string = magic_string.encode("utf-8")
+    header_format = f"@{len(magic_string)}sBLLLL"
+    assert struct.calcsize(header_format) == nco.HEADER_SIZE
+
+    header = struct.pack(header_format, magic_string, version, 0, 1, 2, 3)
+    fileobj.write(header)
 
 
 class TestSubfile:
@@ -42,6 +53,12 @@ class TestSubfile:
             assert Subfile(f, 2, 14).readline() == data[2:11]
         with testfile.open() as f:
             assert Subfile(f, 2, 14).readline(15) == data[2:11]
+
+    def test_readinto(self, data, testfile):
+        b = bytearray(4)
+        with testfile.open("rb") as f:
+            assert Subfile(f, 2, 6).readinto(b) == 4
+        assert b == b"2345"
 
     def test_seek(self, data, testfile):
         with testfile.open() as f:
@@ -88,9 +105,35 @@ class TestSubfile:
             sf.seek(8, os.SEEK_END)
             assert sf.read() == ""
 
+    def test_tell(self, data, testfile):
+        with testfile.open() as f:
+            sf = Subfile(f, 2, 6)
+            assert sf.tell() == 0
+            sf.seek(3)
+            assert sf.tell() == 3
 
-def test_nco_roundtrip(tmpdir):
-    tmpfile = tmpdir.join("test.nco")
+    def test_read_errors(self, tmp_path):
+        # use a bad magic string
+        filepath = tmp_path / "bad_magic_cache_file.txt"
+        with open(filepath, "wb") as fh:
+            write_custom_nco_header(fh, magic_string="BAD")
+
+        with open(filepath, "rb") as fh:
+            with pytest.raises(CacheIOError, match="Not a Nengo cache object file"):
+                nco.read(fh)
+
+        # use a bad version number
+        filepath = tmp_path / "bad_version_cache_file.txt"
+        with open(filepath, "wb") as fh:
+            write_custom_nco_header(fh, version=255)
+
+        with open(filepath, "rb") as fh:
+            with pytest.raises(CacheIOError, match="NCO protocol version 255 is"):
+                nco.read(fh)
+
+
+def test_nco_roundtrip(tmp_path):
+    tmpfile = tmp_path / "test.nco"
 
     pickle_data = {"0": 237, "str": "foobar"}
     array = np.array([[4, 3], [2, 1]])

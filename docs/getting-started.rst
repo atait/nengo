@@ -34,7 +34,7 @@ on each operating system is:
 - Linux: Use a package manager or install from source
 
 For more options, see
-`SciPy.org's installation page <https://www.scipy.org/install.html>`_.
+`SciPy.org's installation page <https://scipy.org/install/>`_.
 For our recommended options, read on.
 
 Anaconda
@@ -93,7 +93,7 @@ Python's own package manager, ``pip``.
 - Running the test suite requires
   pytest, Matplotlib, and Jupyter.
 - Building the documentation requires
-  Sphinx, NumPyDoc and guzzle_sphinx_theme.
+  Sphinx, NumPyDoc and nengo_sphinx_theme.
 
 These additional dependencies can be installed
 through ``pip`` when installing Nengo.

@@ -1,8 +1,8 @@
 import logging
 import pickle
-import pkg_resources
 
 import numpy as np
+import pkg_resources
 import pytest
 
 import nengo
@@ -11,12 +11,14 @@ from nengo.builder import Model
 from nengo.builder.ensemble import BuiltEnsemble
 from nengo.builder.operator import DotInc
 from nengo.builder.signal import Signal
-from nengo.exceptions import SimulatorClosed, ValidationError
-from nengo.rc import rc, RC_DEFAULTS
+from nengo.exceptions import ReadonlyError, SimulatorClosed, ValidationError
+from nengo.rc import RC_DEFAULTS, rc
 from nengo.utils.progress import ProgressBar
 
 
 def test_steps(Simulator, allclose):
+    """Tests stepping through a simple simulation, ensuring that
+    steps are tracked and steps take the right amount of time"""
     dt = 0.001
     m = nengo.Network(label="test_steps")
     with Simulator(m, dt=dt) as sim:
@@ -35,13 +37,13 @@ def test_steps(Simulator, allclose):
 
 @pytest.mark.parametrize("bits", ["16", "32", "64"])
 def test_dtype(Simulator, request, seed, bits):
-    # Ensure dtype is set back to default after the test, even if it fails
+    # Ensures dtype is set back to default after the test, even if it fails
     request.addfinalizer(
         lambda: rc.set("precision", "bits", str(RC_DEFAULTS["precision"]["bits"]))
     )
 
-    float_dtype = np.dtype(getattr(np, "float%s" % bits))
-    int_dtype = np.dtype(getattr(np, "int%s" % bits))
+    float_dtype = np.dtype(getattr(np, f"float{bits}"))
+    int_dtype = np.dtype(getattr(np, f"int{bits}"))
 
     with nengo.Network() as model:
         u = nengo.Node([0.5, -0.4])
@@ -49,12 +51,12 @@ def test_dtype(Simulator, request, seed, bits):
         nengo.Connection(u, a)
         p = nengo.Probe(a)
 
-    rc.set("precision", "bits", bits)
+    rc["precision"]["bits"] = bits
     with Simulator(model) as sim:
         sim.step()
 
         for k, v in sim.signals.items():
-            assert v.dtype in (float_dtype, int_dtype), "Signal '%s' wrong dtype" % k
+            assert v.dtype in (float_dtype, int_dtype), f"Signal '{k}' wrong dtype"
 
         objs = (obj for obj in model.all_objects if sim.data[obj] is not None)
         for obj in objs:
@@ -91,6 +93,14 @@ def test_simulation_data():
     data = nengo.simulator.SimulationData(raw)
     assert np.all(data["scalar"] == np.asarray(raw["scalar"]))
     assert np.all(data.get("list") == np.asarray(raw.get("list")))
+    assert tuple(data) == tuple(raw)  # this tests __iter__
+    assert len(data) == len(raw)
+    assert repr(data) == repr(raw)
+    assert str(data) == str(raw)
+
+    assert len(data._cache) > 0
+    data.reset()
+    assert len(data._cache) == 0
 
 
 def test_simulation_data_with_repeated_simulator_runs(Simulator):
@@ -157,12 +167,23 @@ def test_close_steps(Simulator):
         sim.step()
 
 
+def test_sim_reopen(Simulator):
+    with Simulator(nengo.Network()) as sim:
+        assert not sim.closed
+
+    assert sim.closed
+
+    with pytest.raises(SimulatorClosed, match="simulator is closed"):
+        with sim:
+            pass
+
+
 def test_warn_on_opensim_del(Simulator):
     with nengo.Network() as net:
         nengo.Ensemble(10, 1)
 
     sim = Simulator(net)
-    with pytest.warns(ResourceWarning):
+    with pytest.warns(ResourceWarning, match="Simulator.*deallocated while open"):
         sim.__del__()
     sim.close()
 
@@ -208,7 +229,7 @@ def test_seeding(Simulator, allclose):
         A = nengo.Ensemble(40, 1, label="A")
         B = nengo.Ensemble(20, 1, label="B")
         nengo.Connection(input, A)
-        C = nengo.Connection(A, B, function=lambda x: x ** 2)
+        C = nengo.Connection(A, B, function=lambda x: x**2)
 
     m.seed = 872
     with Simulator(m) as sim:
@@ -221,10 +242,16 @@ def test_seeding(Simulator, allclose):
 
     def compare_objs(obj1, obj2, attrs, equal=True):
         for attr in attrs:
-            check = allclose(getattr(obj1, attr), getattr(obj2, attr)) == equal
+            attr1 = getattr(obj1, attr)
+            attr2 = getattr(obj2, attr)
+            check = (
+                allclose(attr1, attr2)
+                if equal
+                else (not allclose(attr1, attr2, record_rmse=False, print_fail=0))
+            )
             if not check:
-                logging.info("%s: %s", attr, getattr(obj1, attr))
-                logging.info("%s: %s", attr, getattr(obj2, attr))
+                logging.info("%s: %s", attr, attr1)
+                logging.info("%s: %s", attr, attr2)
             assert check
 
     ens_attrs = BuiltEnsemble._fields
@@ -297,7 +324,7 @@ def test_probe_cache(Simulator, allclose):
         sim.run_steps(10)
         ub = np.array(sim.data[up])
 
-    assert not allclose(ua, ub, atol=1e-1, record_rmse=False)
+    assert not allclose(ua, ub, atol=1e-1, record_rmse=False, print_fail=0)
 
 
 def test_invalid_run_time(Simulator):
@@ -345,10 +372,11 @@ def test_simulator_progress_bars(Simulator):
 
     with nengo.Network() as model:
         for _ in range(3):
-            [nengo.Ensemble(10, 1) for i in range(3)]
+            for _ in range(3):
+                nengo.Ensemble(10, 1)
             with nengo.Network():
-                [nengo.Ensemble(10, 1) for i in range(3)]
-
+                for _ in range(3):
+                    nengo.Ensemble(10, 1)
     build_invariants = ProgressBarInvariants()
     with Simulator(model, progress_bar=build_invariants) as sim:
         run_invariants = ProgressBarInvariants()
@@ -406,3 +434,9 @@ def test_pickle_optimize(caplog, seed):
     unpickled.close()
 
     assert np.all(before == after)
+
+
+def test_dt_readonly():
+    with nengo.Simulator(nengo.Network()) as sim:
+        with pytest.raises(ReadonlyError, match="dt"):
+            sim.dt = 0.05

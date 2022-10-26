@@ -16,7 +16,7 @@ class TestThreadLocalStack:
             def assert_thread(self, worker):
                 assert list(stack) == [2]
 
-        CheckIndependence(n_threads=2)
+        CheckIndependence(n_threads=2).run()
 
     def test_has_length(self):
         stack = ThreadLocalStack()
@@ -26,7 +26,7 @@ class TestThreadLocalStack:
 
     def test_implements_stack(self):
         stack = ThreadLocalStack()
-        assert list(stack) == []
+        assert not list(stack)
         stack.append(1)
         assert list(stack) == [1]
         stack.append(2)
@@ -34,7 +34,7 @@ class TestThreadLocalStack:
         assert stack.pop() == 2
         assert list(stack) == [1]
         assert stack.pop() == 1
-        assert list(stack) == []
+        assert not list(stack)
 
         with pytest.raises(IndexError):
             stack.pop()

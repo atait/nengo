@@ -77,7 +77,7 @@ class Cholesky(LeastSquaresSolver):
             b = np.dot(A.T, Y)
 
         # add L2 regularization term 'lambda' = m * sigma**2
-        np.fill_diagonal(G, G.diagonal() + m * sigma ** 2)
+        np.fill_diagonal(G, G.diagonal() + m * sigma**2)
 
         try:
             import scipy.linalg  # pylint: disable=import-outside-toplevel
@@ -114,6 +114,10 @@ class ConjgradScipy(LeastSquaresSolver):
     atol = NumberParam("atol", low=0)
 
     def __init__(self, tol=1e-4, atol=1e-8):
+        import scipy.sparse.linalg  # pylint: disable=import-outside-toplevel
+
+        assert scipy.sparse.linalg
+
         super().__init__()
         self.tol = tol
         self.atol = atol
@@ -123,7 +127,7 @@ class ConjgradScipy(LeastSquaresSolver):
 
         Y, m, n, d, matrix_in = format_system(A, Y)
 
-        damp = m * sigma ** 2
+        damp = m * sigma**2
         calcAA = lambda x: np.dot(A.T, np.dot(A, x)) + damp * x
         G = scipy.sparse.linalg.LinearOperator(
             (n, n), matvec=calcAA, matmat=calcAA, dtype=A.dtype
@@ -160,6 +164,10 @@ class LSMRScipy(LeastSquaresSolver):
     tol = NumberParam("tol", low=0)
 
     def __init__(self, tol=1e-4):
+        import scipy.sparse.linalg  # pylint: disable=import-outside-toplevel
+
+        assert scipy.sparse.linalg
+
         super().__init__()
         self.tol = tol
 
@@ -198,10 +206,10 @@ class Conjgrad(LeastSquaresSolver):
         X = np.zeros((n, d)) if self.X0 is None else np.array(self.X0)
         if X.shape != (n, d):
             raise ValidationError(
-                "Must be shape %s, got %s" % ((n, d), X.shape), attr="X0", obj=self
+                f"Must be shape {n, d}, got {X.shape}", attr="X0", obj=self
             )
 
-        damp = m * sigma ** 2
+        damp = m * sigma**2
         rtol = self.tol * np.sqrt(m)
         G = lambda x: np.dot(A.T, np.dot(A, x)) + damp * x
         B = np.dot(A.T, Y)
@@ -268,10 +276,10 @@ class BlockConjgrad(LeastSquaresSolver):
         X = np.zeros((n, d)) if self.X0 is None else np.array(self.X0)
         if X.shape != (n, d):
             raise ValidationError(
-                "Must be shape %s, got %s" % ((n, d), X.shape), attr="X0", obj=self
+                f"Must be shape {n, d}, got {X.shape}", attr="X0", obj=self
             )
 
-        damp = m * sigma ** 2
+        damp = m * sigma**2
         rtol = self.tol * np.sqrt(m)
         G = lambda x: np.dot(A.T, np.dot(A, x)) + damp * x
         B = np.dot(A.T, Y)
@@ -282,7 +290,7 @@ class BlockConjgrad(LeastSquaresSolver):
         Rsold = np.dot(R.T, R)
         AP = np.zeros((n, d))
 
-        maxiters = int(n / d)
+        maxiters = int(n / d) + 1
         for i in range(maxiters):
             AP = G(P)
             alpha = np.linalg.solve(np.dot(P.T, AP), Rsold)
@@ -290,7 +298,7 @@ class BlockConjgrad(LeastSquaresSolver):
             R -= np.dot(AP, alpha)
 
             Rsnew = np.dot(R.T, R)
-            if (np.diag(Rsnew) < rtol ** 2).all():
+            if (np.diag(Rsnew) < rtol**2).all():
                 break
 
             beta = np.linalg.solve(Rsold, Rsnew)
@@ -307,7 +315,7 @@ class SVD(LeastSquaresSolver):
     def __call__(self, A, Y, sigma, rng=None):
         Y, m, _, _, matrix_in = format_system(A, Y)
         U, s, V = np.linalg.svd(A, full_matrices=0)
-        si = s / (s ** 2 + m * sigma ** 2)
+        si = s / (s**2 + m * sigma**2)
         X = np.dot(V.T, si[:, None] * np.dot(U.T, Y))
         info = {"rmses": npext.rms(Y - np.dot(A, X), axis=0)}
         return X if matrix_in else X.ravel(), info
@@ -366,13 +374,15 @@ class RandomizedSVD(LeastSquaresSolver):
             n_iter=self.n_iter,
             random_state=rng,
         )
-        si = s / (s ** 2 + m * sigma ** 2)
+        si = s / (s**2 + m * sigma**2)
         X = np.dot(V.T, si[:, None] * np.dot(U.T, Y))
         info = {"rmses": npext.rms(Y - np.dot(A, X), axis=0)}
         return X if matrix_in else X.ravel(), info
 
 
 class LeastSquaresSolverParam(Parameter):
-    def coerce(self, instance, solver):
+    """A parameter where the value is a LeastSquaresSolver."""
+
+    def coerce(self, instance, solver):  # pylint: disable=arguments-renamed
         self.check_type(instance, solver, LeastSquaresSolver)
         return super().coerce(instance, solver)

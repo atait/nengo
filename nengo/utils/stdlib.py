@@ -1,16 +1,14 @@
 """Functions that extend the Python Standard Library."""
 
-import collections
 import inspect
 import itertools
-import os
-import shutil
-import sys
 import time
 import weakref
+from collections import namedtuple
+from collections.abc import Hashable, MutableMapping, MutableSet, Set
 
 
-class WeakKeyDefaultDict(collections.abc.MutableMapping):
+class WeakKeyDefaultDict(MutableMapping):
     """WeakKeyDictionary that allows to define a default."""
 
     def __init__(self, default_factory, items=None, **kwargs):
@@ -39,7 +37,7 @@ class WeakKeyDefaultDict(collections.abc.MutableMapping):
         return len(self._data)
 
 
-class WeakKeyIDDictionary(collections.abc.MutableMapping):
+class WeakKeyIDDictionary(MutableMapping):
     """WeakKeyDictionary that uses object ID to hash.
 
     This ignores the ``__eq__`` and ``__hash__`` functions on objects,
@@ -67,7 +65,6 @@ class WeakKeyIDDictionary(collections.abc.MutableMapping):
         return len(self._keyrefs)
 
     def __delitem__(self, k):
-        assert weakref.ref(k)
         if k in self:
             del self._keyrefs[id(k)]
             del self._keyvalues[id(k)]
@@ -77,15 +74,10 @@ class WeakKeyIDDictionary(collections.abc.MutableMapping):
             raise KeyError(str(k))
 
     def __getitem__(self, k):
-        assert weakref.ref(k)
-        if k in self:
-            return self._keyvalues[id(k)]
-        else:
-            raise KeyError(str(k))
+        return self._keyvalues[id(k)]
 
     def __setitem__(self, k, v):
         ref = weakref.ref(k, self.__free_value)  # add callback
-        assert ref
         self._keyrefs[id(k)] = k
         self._keyvalues[id(k)] = v
         self._ref2id[id(ref)] = id(k)
@@ -99,17 +91,14 @@ class WeakKeyIDDictionary(collections.abc.MutableMapping):
         del self._id2ref[id_]
         del self._ref2id[id(ref)]
 
-    def get(self, k, default=None):
+    def get(self, key, default=None):
         """Return item from dictionary."""
 
-        return self._keyvalues[id(k)] if k in self else default
+        return self._keyvalues.get(id(key), default)
 
     def keys(self):
         """Return dictionary keys."""
 
-        return self._keyrefs.values()
-
-    def iterkeys(self):
         return self._keyrefs.values()
 
     def items(self):
@@ -117,21 +106,13 @@ class WeakKeyIDDictionary(collections.abc.MutableMapping):
         for k in self:
             yield k, self[k]
 
-    def iteritems(self):
-        for k in self:
-            yield k, self[k]
-
-    def update(self, in_dict=None, **kwargs):
+    def update(self, in_dict):
         """Update with items from other dictionary."""
-
-        if in_dict is not None:
-            for key, value in in_dict.items():
-                self.__setitem__(key, value)
-        if len(kwargs) > 0:
-            self.update(kwargs)
+        for key, value in in_dict.items():
+            self.__setitem__(key, value)
 
 
-class WeakSet(collections.abc.MutableSet):
+class WeakSet(MutableSet):
     """Uses weak references to store the items in the set."""
 
     def __init__(self, items=None):
@@ -140,8 +121,8 @@ class WeakSet(collections.abc.MutableSet):
         if items is not None:
             self |= items
 
-    def __contains__(self, key):
-        return key in self._data
+    def __contains__(self, value):
+        return value in self._data
 
     def __iter__(self):
         return iter(self._data)
@@ -149,15 +130,59 @@ class WeakSet(collections.abc.MutableSet):
     def __len__(self):
         return len(self._data)
 
-    def add(self, key):
-        self._data[key] = None
+    def add(self, value):
+        self._data[value] = None
 
-    def discard(self, key):
-        if key in self._data:
-            del self._data[key]
+    def discard(self, value):
+        if value in self._data:
+            del self._data[value]
 
 
-CheckedCall = collections.namedtuple("CheckedCall", ("value", "invoked"))
+class FrozenOrderedSet(Set):
+    """A set that preserves insertion order and is hashable."""
+
+    def __init__(self, data=None):
+        if data is None:
+            data = []
+        self.data = dict((d, None) for d in data)
+
+    def __contains__(self, elem):
+        return elem in self.data
+
+    def __iter__(self):
+        return iter(self.data)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __hash__(self):
+        return self._hash()
+
+
+class OrderedSet(FrozenOrderedSet, MutableSet):  # pylint: disable=too-many-ancestors
+    """A set that preserves insertion order and is mutable."""
+
+    def add(self, value):
+        self.data[value] = None
+
+    def discard(self, value):
+        self.data.pop(value, None)
+
+    def update(self, other):
+        self.data.update((value, None) for value in other)
+
+    def difference_update(self, other):
+        self -= other
+
+    def __ior__(self, other):
+        self.update(other)
+        return self
+
+    def __hash__(self):
+        raise TypeError("OrderedSet is not hashable (use FrozenOrderedSet)")
+
+
+CheckedCall = namedtuple("CheckedCall", ("value", "invoked"))
 
 
 def checked_call(func, *args, **kwargs):
@@ -172,7 +197,7 @@ def checked_call(func, *args, **kwargs):
     """
     try:
         return CheckedCall(func(*args, **kwargs), True)
-    except Exception:
+    except (TypeError, ValueError):
         tb = inspect.trace()
         if not len(tb) or tb[-1][0] is not inspect.currentframe():
             raise  # exception occurred inside func
@@ -198,7 +223,7 @@ def execfile(path, globals, locals=None):
         source = fp.read()
 
     code = compile(source, path, "exec")
-    exec(code, globals, locals)
+    exec(code, globals, locals)  # pylint: disable = exec-used
 
 
 def groupby(objects, key, hashable=None, force_list=True):
@@ -235,7 +260,7 @@ def groupby(objects, key, hashable=None, force_list=True):
         # get first item without advancing iterator, and see if key is hashable
         objects, objects2 = itertools.tee(iter(objects))
         item0 = next(objects2)
-        hashable = isinstance(key(item0), collections.abc.Hashable)
+        hashable = isinstance(key(item0), Hashable)
 
     if hashable:
         # use a dictionary to sort by hash (faster)
@@ -249,15 +274,6 @@ def groupby(objects, key, hashable=None, force_list=True):
             return [(k, list(g)) for k, g in keygroupers]
         else:
             return keygroupers
-
-
-def get_terminal_size(fallback=(80, 24)):
-    """Look up character width of terminal."""
-
-    try:
-        return shutil.get_terminal_size(fallback)
-    except Exception:  # pragma: no cover
-        return os.terminal_size(fallback)
 
 
 class Timer:
@@ -287,17 +303,15 @@ class Timer:
 
     """
 
-    TIMER = time.clock if sys.platform == "win32" else time.time
-
     def __init__(self):
         self.start = None
         self.end = None
         self.duration = None
 
     def __enter__(self):
-        self.start = Timer.TIMER()
+        self.start = time.perf_counter()
         return self
 
     def __exit__(self, type, value, traceback):
-        self.end = Timer.TIMER()
+        self.end = time.perf_counter()
         self.duration = self.end - self.start

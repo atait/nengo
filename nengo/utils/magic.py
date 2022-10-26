@@ -96,7 +96,7 @@ class ObjectProxy(metaclass=ObjectProxyMeta):
     except ``__call__``.
     """
 
-    __slots__ = "__wrapped__"
+    __slots__ = ["__wrapped__"]
 
     def __init__(self, wrapped):
         object.__setattr__(self, "__wrapped__", wrapped)
@@ -111,7 +111,7 @@ class ObjectProxy(metaclass=ObjectProxyMeta):
 
     @property
     def __annotations__(self):
-        return self.__wrapped__.__anotations__
+        return self.__wrapped__.__annotations__
 
     @property
     def __name__(self):
@@ -137,11 +137,9 @@ class ObjectProxy(metaclass=ObjectProxyMeta):
         return str(self.__wrapped__)
 
     def __repr__(self):
-        return "<%s at 0x%x for %s at 0x%x>" % (
-            type(self).__name__,
-            id(self),
-            type(self.__wrapped__).__name__,
-            id(self.__wrapped__),
+        return (
+            f"<{type(self).__name__} at 0x{id(self):x} "
+            f"for {type(self.__wrapped__).__name__} at 0x{id(self.__wrapped__):x}>"
         )
 
 

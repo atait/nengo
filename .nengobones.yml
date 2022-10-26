@@ -4,6 +4,7 @@ repo_name: nengo/nengo
 description: Tools for building and simulating large-scale neural models
 
 copyright_start: 2013
+license: abr-free
 
 license_rst: {}
 
@@ -18,11 +19,13 @@ manifest_in:
     - nengo *.md
     - nengo *.rst
     - nengo *.txt
+    - nengo *.npz
 
 setup_py:
   package_data:
     nengo:
       - nengo-data/nengorc
+  include_package_data: True
   py_modules:
     - pytest_nengo
   entry_points:
@@ -31,7 +34,7 @@ setup_py:
     pytest11:
       - nengo = pytest_nengo
   install_req:
-    - numpy>=1.13
+    - numpy>=1.19
   docs_req:
     - sphinx>=1.8
     - jupyter
@@ -45,7 +48,7 @@ setup_py:
   tests_req:
     - jupyter
     - matplotlib>=1.4
-    - pytest>=3.6
+    - pytest>=3.9.1
     - pytest-allclose
     - pytest-plt
     - pytest-rng
@@ -53,19 +56,23 @@ setup_py:
     - "Development Status :: 5 - Production/Stable"
     - "Framework :: Nengo"
     - "Intended Audience :: Science/Research"
-    - "License :: Free for non-commercial use"
     - "Operating System :: OS Independent"
     - "Programming Language :: Python :: 3 :: Only"
-    - "Programming Language :: Python :: 3.5"
     - "Programming Language :: Python :: 3.6"
     - "Programming Language :: Python :: 3.7"
+    - "Programming Language :: Python :: 3.8"
+    - "Programming Language :: Python :: 3.9"
     - "Topic :: Scientific/Engineering :: Artificial Intelligence"
 
 setup_cfg:
   coverage:
+    exclude_lines:
+      - "^[ \\t]*assert False"
     omit_files:
       - "nengo/_vendor/*"
       - "nengo/spa/*"
+      # omit filter_design.py until it gets moved to nengo/_vendor
+      - "nengo/utils/filter_design.py"
   flake8:
     exclude:
       - compat.py
@@ -92,41 +99,10 @@ setup_cfg:
     ignore:
       - _vendor
       - compat.py
-      - nengo/spa
+      - spa
     disable:
-      # TODO: fix these and start checking for them
-      - abstract-method
-      - bad-continuation
-      - bad-string-format-type
-      - broad-except
-      - not-callable
-      - chained-comparison
-      - consider-iterating-dictionary
-      - consider-merging-isinstance
-      - consider-using-in
-      - cyclic-import
-      - eval-used
-      - exec-used
-      - expression-not-assigned
-      - global-statement
-      - inconsistent-return-statements
-      - invalid-unary-operand-type
-      - keyword-arg-before-vararg
-      - logging-format-interpolation
       - missing-docstring
-      - nonexistent-operator
-      - pointless-statement
-      - redefined-argument-from-local
       - redefined-outer-name
-      - reimported
-      - single-string-used-for-slots
-      - superfluous-parens
-      - too-many-ancestors
-      - trailing-comma-tuple
-      - undefined-loop-variable
-      - unexpected-special-method-signature
-      - unnecessary-pass
-      - unused-variable
     known_third_party:
       - mpl_toolkits
       - pytest_allclose
@@ -135,7 +111,7 @@ docs_conf_py:
   intersphinx_mapping:
     scipy: 'https://docs.scipy.org/doc/scipy/reference'
     sklearn: 'https://scikit-learn.org/dev'
-  analytics_id: UA-41658423-2
+  tagmanager_id: GTM-KWCR2HN
   extensions:
     - nengo_sphinx_theme.ext.autoautosummary
     - nengo_sphinx_theme.ext.resolvedefaults
@@ -144,6 +120,7 @@ docs_conf_py:
     - "import numpy as np"
     - "if np.__version__ >= '1.14':"
     - "    np.set_printoptions(legacy='1.13')"
+    - "import matplotlib.pyplot as plt"
   html_redirects:
     backend_api.html: backend-api.html
     examples/advanced/functions_and_tuning_curves.html:
@@ -193,6 +170,7 @@ docs_conf_py:
   autoautosummary_change_modules:
     nengo:
       - nengo.learning_rules.PES
+      - nengo.learning_rules.RLS
       - nengo.learning_rules.BCM
       - nengo.learning_rules.Oja
       - nengo.learning_rules.Voja
@@ -215,13 +193,16 @@ docs_conf_py:
       - nengo.transforms.Dense
       - nengo.transforms.Sparse
       - nengo.transforms.Convolution
+      - nengo.transforms.ConvolutionTranspose
+      - nengo.transforms.Conv
+      - nengo.transforms.ConvTranspose
       - nengo.config.Config
     nengo.builder:
       - nengo.builder.operator.Operator
       - nengo.builder.signal.Signal
 
 travis_yml:
-  python: 3.6
+  python: 3.7
   global_vars:
     NUMPY: numpy
   jobs:
@@ -230,30 +211,25 @@ travis_yml:
       test_args: --memory --plots
     - script: test-coverage
       test_args: --plots
-      python: 3.5
+      python: 3.7
     - script: docs
       apt_install:
         - graphviz
         - pandoc
     - env:
-        NUMPY: numpy==1.13
-      if: "branch =~ ^release-candidate-*"
+        NUMPY: numpy==1.19
+      python: 3.8
       cache: false  # disable the cache for one build to make sure that works
-    - env:
-        NUMPY: numpy==1.14
       if: "branch =~ ^release-candidate-*"
     - env:
-        NUMPY: numpy==1.15
-      if: "branch =~ ^release-candidate-*"
-    - env:
-        NUMPY: numpy==1.16
-      if: "branch =~ ^release-candidate-*"
-    - env:
-        NUMPY: numpy==1.17
+        NUMPY: numpy==1.20
+      python: 3.8
       if: "branch =~ ^release-candidate-*"
     - dist: bionic
-      python: 3.7
-  pypi_user: tbekolay
+      env:
+        NUMPY: numpy==1.21
+      python: 3.9
+  pypi_user: __token__
   deploy_dists:
     - sdist
     - bdist_wheel
@@ -286,12 +262,19 @@ ci_scripts:
       - matplotlib
   - template: deploy
 
-codecov_yml: {}
+codecov_yml:
+  abs_target: 100%
 
 pre_commit_config_yaml:
   exclude:
-    - "_vendor/*"
+    - "_vendor/"
 
 pyproject_toml:
   exclude:
-    - "_vendor/*"
+    - "_vendor/"
+
+version_py:
+  major: 3
+  minor: 2
+  patch: 1
+  release: false

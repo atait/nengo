@@ -1,25 +1,31 @@
 import errno
+import logging
 import multiprocessing
 import os
+import pickle
 import sys
+from pathlib import Path
 from subprocess import CalledProcessError
 
 import numpy as np
-from numpy.testing import assert_equal
 import pytest
+from numpy.testing import assert_equal
 
 import nengo
+import nengo.neurons
+import nengo.utils.least_squares_solvers
 from nengo.cache import (
     CacheIndex,
+    CacheIOError,
     DecoderCache,
     Fingerprint,
-    get_fragment_size,
+    NoDecoderCache,
     WriteableCacheIndex,
+    get_fragment_size,
+    safe_stat,
 )
 from nengo.exceptions import CacheIOWarning, FingerprintError
-import nengo.neurons
 from nengo.solvers import LstsqL2
-import nengo.utils.least_squares_solvers
 
 
 class Mock:
@@ -115,8 +121,8 @@ def get_solver_test_args(
     return defaults
 
 
-def test_decoder_cache(tmpdir):
-    cache_dir = str(tmpdir)
+def test_decoder_cache(tmp_path):
+    cache_dir = str(tmp_path)
 
     # Basic test, that results are cached.
     with DecoderCache(cache_dir=cache_dir) as cache:
@@ -134,7 +140,7 @@ def test_decoder_cache(tmpdir):
 
         solver_args = get_solver_test_args()
         solver_args["gain"] *= 2
-        decoders3, solver_info3 = cache.wrap_solver(solver_mock)(**solver_args)
+        decoders3, _ = cache.wrap_solver(solver_mock)(**solver_args)
         assert SolverMock.n_calls[solver_mock] == 2
         assert np.any(decoders1 != decoders3)
 
@@ -145,9 +151,18 @@ def test_decoder_cache(tmpdir):
         )
         assert SolverMock.n_calls[another_solver] == 1
 
+    with DecoderCache(cache_dir=cache_dir, readonly=True) as cache:
+        n_calls = int(SolverMock.n_calls[solver_mock])
+        decoders3, solver_info3 = cache.wrap_solver(solver_mock)(
+            **get_solver_test_args()
+        )
+        assert SolverMock.n_calls[solver_mock] == n_calls
+        assert_equal(decoders3, decoders2)
+        assert solver_info3 == solver_info2
 
-def test_corrupted_decoder_cache(tmpdir):
-    cache_dir = str(tmpdir)
+
+def test_corrupted_decoder_cache(tmp_path):
+    cache_dir = str(tmp_path)
 
     with DecoderCache(cache_dir=cache_dir) as cache:
         solver_mock = SolverMock()
@@ -156,22 +171,22 @@ def test_corrupted_decoder_cache(tmpdir):
 
         # corrupt the cache
         for path in cache.get_files():
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 f.write("corrupted")
 
         cache.wrap_solver(solver_mock)(**get_solver_test_args())
         assert SolverMock.n_calls[solver_mock] == 2
 
 
-def test_corrupted_decoder_cache_index(tmpdir):
-    cache_dir = str(tmpdir)
+def test_corrupted_decoder_cache_index(tmp_path):
+    cache_dir = str(tmp_path)
 
     with DecoderCache(cache_dir=cache_dir):
         pass  # Initialize cache with required files
     assert len(os.listdir(cache_dir)) == 2  # index, index.lock
 
     # Write corrupted index
-    with open(os.path.join(cache_dir, CacheIndex._INDEX), "w") as f:
+    with open(os.path.join(cache_dir, CacheIndex._INDEX), "w", encoding="utf-8") as f:
         f.write("(d")  # empty dict, but missing '.' at the end
 
     # Try to load index
@@ -180,8 +195,22 @@ def test_corrupted_decoder_cache_index(tmpdir):
     assert len(os.listdir(cache_dir)) == 2  # index, index.lock
 
 
-def test_decoder_cache_invalidation(tmpdir):
-    cache_dir = str(tmpdir)
+def test_too_new_decoder_cache_index(tmp_path):
+    cache_dir = str(tmp_path)
+
+    # Write index with super large version numbers
+    with open(os.path.join(cache_dir, CacheIndex._INDEX), "wb") as f:
+        pickle.dump((1000, 1000), f)
+
+    with pytest.warns(UserWarning, match="could not acquire lock and was deactivated"):
+        with DecoderCache(cache_dir=cache_dir) as cache:
+            solver_mock = SolverMock()
+            cache.wrap_solver(solver_mock)(**get_solver_test_args())
+            assert SolverMock.n_calls[solver_mock] == 1
+
+
+def test_decoder_cache_invalidation(tmp_path):
+    cache_dir = str(tmp_path)
     solver_mock = SolverMock()
 
     # Basic test, that results are cached.
@@ -193,8 +222,24 @@ def test_decoder_cache_invalidation(tmpdir):
         assert SolverMock.n_calls[solver_mock] == 2
 
 
-def test_decoder_cache_size_includes_overhead(tmpdir):
-    cache_dir = str(tmpdir)
+def test_readonly_cache(caplog, tmp_path):
+    caplog.set_level(logging.INFO)
+    cache_dir = str(tmp_path)
+
+    with open(os.path.join(cache_dir, CacheIndex._INDEX), "wb") as f:
+        pickle.dump((CacheIndex.VERSION, pickle.HIGHEST_PROTOCOL), f)
+        pickle.dump({}, f)
+
+    with DecoderCache(readonly=True, cache_dir=cache_dir) as cache:
+        cache.shrink()
+        with pytest.raises(CacheIOError, match="Cannot invalidate a readonly cache."):
+            cache.invalidate()
+    assert len(caplog.records) == 1
+    assert caplog.records[0].message == "Tried to shrink a readonly cache."
+
+
+def test_decoder_cache_size_includes_overhead(tmp_path):
+    cache_dir = str(tmp_path)
     solver_mock = SolverMock()
 
     with DecoderCache(cache_dir=cache_dir) as cache:
@@ -210,8 +255,8 @@ def test_decoder_cache_size_includes_overhead(tmpdir):
         assert cache.get_size_in_bytes() % fragment_size == 0
 
 
-def test_decoder_cache_shrinking(tmpdir):
-    cache_dir = str(tmpdir)
+def test_decoder_cache_shrinking(tmp_path):
+    cache_dir = str(tmp_path)
     solver_mock = SolverMock()
     another_solver = SolverMock()
 
@@ -245,9 +290,9 @@ def test_decoder_cache_shrinking(tmpdir):
         assert SolverMock.n_calls[another_solver] == 1
 
 
-def test_decoder_cache_shrink_threadsafe(monkeypatch, tmpdir):
+def test_decoder_cache_shrink_threadsafe(monkeypatch, tmp_path):
     """Tests that shrink handles files deleted by other processes."""
-    cache_dir = str(tmpdir)
+    cache_dir = str(tmp_path)
     solver_mock = SolverMock()
 
     with DecoderCache(cache_dir=cache_dir) as cache:
@@ -285,8 +330,8 @@ def test_decoder_cache_shrink_threadsafe(monkeypatch, tmpdir):
         cache.shrink(limit)
 
 
-def test_decoder_cache_with_E_argument_to_solver(tmpdir):
-    cache_dir = str(tmpdir)
+def test_decoder_cache_with_E_argument_to_solver(tmp_path):
+    cache_dir = str(tmp_path)
     solver_mock = SolverMock()
 
     with DecoderCache(cache_dir=cache_dir) as cache:
@@ -315,7 +360,7 @@ class DummyB:
         self.attr = attr
 
 
-nengo.cache.Fingerprint.whitelist(DummyB)
+nengo.cache.Fingerprint.whitelist(DummyB, fn=lambda obj: True)
 
 
 def dummy_fn(arg):
@@ -355,7 +400,7 @@ def test_fingerprinting(reference, equal, different):
     ),
 )
 def test_unsupported_fingerprinting(obj):
-    with pytest.raises(FingerprintError):
+    with pytest.raises(FingerprintError, match="cannot be fingerprinted"):
         Fingerprint(obj)
 
 
@@ -364,6 +409,8 @@ def test_supported_fingerprinting(cls, monkeypatch):
     # patch so we can instantiate various solvers without the proper libraries
     monkeypatch.setitem(sys.modules, "scipy", Mock())
     monkeypatch.setitem(sys.modules, "scipy.optimize", Mock())
+    monkeypatch.setitem(sys.modules, "scipy.sparse", Mock())
+    monkeypatch.setitem(sys.modules, "scipy.sparse.linalg", Mock())
     monkeypatch.setitem(sys.modules, "sklearn", Mock())
     monkeypatch.setitem(sys.modules, "sklearn.linear_model", Mock())
     monkeypatch.setitem(sys.modules, "sklearn.utils", Mock())
@@ -383,12 +430,12 @@ def test_supported_fingerprinting(cls, monkeypatch):
 
 
 def test_fails_for_lambda_expression():
-    with pytest.raises(FingerprintError):
+    with pytest.raises(FingerprintError, match="cannot be fingerprinted"):
         Fingerprint(lambda x: x)
 
 
-def test_cache_works(tmpdir, Simulator, seed):
-    cache_dir = str(tmpdir)
+def test_cache_works(tmp_path, Simulator, seed):
+    cache_dir = str(tmp_path)
 
     model = nengo.Network(seed=seed)
     with model:
@@ -404,8 +451,8 @@ def test_cache_works(tmpdir, Simulator, seed):
         assert len(os.listdir(cache_dir)) == 3  # index, index.lock, and *.nco
 
 
-def test_cache_not_used_without_seed(tmpdir, Simulator):
-    cache_dir = str(tmpdir)
+def test_cache_not_used_without_seed(tmp_path, Simulator):
+    cache_dir = str(tmp_path)
 
     model = nengo.Network()
     with model:
@@ -436,8 +483,8 @@ def build_many_ensembles(cache_dir, Simulator):
 
 
 @pytest.mark.slow
-def test_cache_concurrency(tmpdir, Simulator):
-    cache_dir = str(tmpdir)
+def test_cache_concurrency(tmp_path, Simulator):
+    cache_dir = str(tmp_path)
 
     n_processes = 100
     processes = [
@@ -454,8 +501,8 @@ def test_cache_concurrency(tmpdir, Simulator):
         assert p.exitcode == 0
 
 
-def test_warns_out_of_context(tmpdir):
-    cache_dir = str(tmpdir)
+def test_warns_out_of_context(tmp_path):
+    cache_dir = str(tmp_path)
     cache = DecoderCache(cache_dir=cache_dir)
 
     solver_mock = SolverMock()
@@ -465,13 +512,13 @@ def test_warns_out_of_context(tmpdir):
     assert SolverMock.n_calls[solver_mock] == 1
 
 
-def test_cacheindex_cannot_write(tmpdir):
-    index = WriteableCacheIndex(cache_dir=str(tmpdir))
+def test_cacheindex_cannot_write(tmp_path):
+    index = WriteableCacheIndex(cache_dir=str(tmp_path))
     with index:
         index[0] = ("file0", 0, 0)
     mtime = os.stat(index.index_path).st_mtime
 
-    index = CacheIndex(cache_dir=str(tmpdir))
+    index = CacheIndex(cache_dir=str(tmp_path))
     with index:
         with pytest.raises(TypeError):
             index[0] = ("file", 0, 0)
@@ -481,22 +528,22 @@ def test_cacheindex_cannot_write(tmpdir):
     assert os.stat(index.index_path).st_mtime == mtime
 
 
-def test_writeablecacheindex_writes(tmpdir):
-    index = WriteableCacheIndex(cache_dir=str(tmpdir))
+def test_writeablecacheindex_writes(tmp_path):
+    index = WriteableCacheIndex(cache_dir=str(tmp_path))
     with index:
         index[0] = ("file0", 0, 0)
         index[1] = ("file1", 0, 0)
         del index[1]
 
     # Verify with readonly cacheindex
-    index = CacheIndex(cache_dir=str(tmpdir))
+    index = CacheIndex(cache_dir=str(tmp_path))
     with index:
         assert index[0] == ("file0", 0, 0)
         assert 1 not in index
 
 
-def test_writeablecacheindex_setitem(tmpdir):
-    index = WriteableCacheIndex(cache_dir=str(tmpdir))
+def test_writeablecacheindex_setitem(tmp_path):
+    index = WriteableCacheIndex(cache_dir=str(tmp_path))
 
     with pytest.raises(ValueError):
         index[0] = "file0"
@@ -506,35 +553,65 @@ def test_writeablecacheindex_setitem(tmpdir):
         index[0] = ("file0", 0, 0, 0)
 
 
-def test_writeablecacheindex_removes(tmpdir):
-    index = WriteableCacheIndex(cache_dir=str(tmpdir))
+def test_writeablecacheindex_removes(tmp_path):
+    index = WriteableCacheIndex(cache_dir=str(tmp_path))
     with index:
         index[0] = ("file0", 0, 0)
         index[1] = ("file1", 0, 0)
         index.remove_file_entry("file0")
-        index.remove_file_entry(os.path.join(str(tmpdir), "file1"))
+        index.remove_file_entry(os.path.join(str(tmp_path), "file1"))
 
     # Verify with readonly cacheindex
-    index = CacheIndex(cache_dir=str(tmpdir))
+    index = CacheIndex(cache_dir=str(tmp_path))
     with index:
         assert 0 not in index, "Fails on relative paths"
         assert 1 not in index, "Fails on absolute paths"
 
 
-def test_writeablecacheindex_warning(monkeypatch, tmpdir):
-    def raise_error(*args, **kwargs):
-        raise CalledProcessError(-1, "move")
-
-    monkeypatch.setattr(os, "replace", raise_error)
+def test_writeablecacheindex_warning(monkeypatch, tmp_path):
     with pytest.warns(CacheIOWarning):
-        with WriteableCacheIndex(cache_dir=str(tmpdir)):
-            pass
+        with WriteableCacheIndex(cache_dir=str(tmp_path)) as idx:
+
+            class RaiseError(type(idx.cache_dir)):
+                def replace(self, *args, **kwargs):
+                    raise CalledProcessError(-1, "move")
+
+            monkeypatch.setattr(idx, "cache_dir", RaiseError(idx.cache_dir))
 
 
-def test_shrink_does_not_fail_if_lock_cannot_be_acquired(tmpdir):
-    cache = DecoderCache(cache_dir=str(tmpdir))
+def test_writeablecacheindex_reinit(tmp_path):
+    with WriteableCacheIndex(cache_dir=str(tmp_path)) as idx:
+        subdir = idx.cache_dir / "subdir"
+        subdir.mkdir()
+        file1 = idx.cache_dir / "file1"
+        file2 = subdir / "file2"
+        with file1.open("w", encoding="utf-8") as fh:
+            fh.write("contents1")
+        with file2.open("w", encoding="utf-8") as fh:
+            fh.write("contents2")
+
+        assert subdir.exists() and file1.exists() and file2.exists()
+
+        idx._reinit()
+        assert not (subdir.exists() or file1.exists() or file2.exists())
+
+
+def test_shrink_does_not_fail_if_lock_cannot_be_acquired(tmp_path):
+    cache = DecoderCache(cache_dir=str(tmp_path))
     cache._index._lock.timeout = 1.0
     with cache:
         cache.wrap_solver(SolverMock())(**get_solver_test_args())
     with cache._index._lock:
         cache.shrink(limit=0)
+
+
+def test_safe_stat(caplog):
+    assert safe_stat(Path("/tmp/does/not/exist")) is None
+    assert len(caplog.records) == 1
+    assert "OSError during safe_stat:" in caplog.records[0].message
+
+
+def test_no_decoder_cache():
+    cache = NoDecoderCache()
+    assert cache.get_size_in_bytes() == 0
+    assert cache.get_size() == "0 B"

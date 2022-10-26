@@ -2,11 +2,11 @@ import warnings
 
 import numpy as np
 
-from nengo.dists import Choice, Distribution, get_samples, Uniform
+from nengo.dists import Choice, Distribution, Uniform, get_samples
 from nengo.exceptions import SimulationError, ValidationError
 from nengo.params import DictParam, FrozenObject, NumberParam, Parameter
 from nengo.rc import rc
-from nengo.utils.numpy import is_array_like, clip
+from nengo.utils.numpy import clip, is_array_like
 
 
 def settled_firingrate(step, J, state, dt=0.001, settle_time=0.1, sim_time=1.0):
@@ -75,15 +75,14 @@ class NeuronType(FrozenObject):
             for name, value in self.initial_state.items():
                 if name not in self.state:
                     raise ValidationError(
-                        "State variable %r not recognized; should be one of %s"
-                        % (name, ", ".join(repr(k) for k in self.state)),
+                        f"State variable '{name}' not recognized; should be one of "
+                        f"{', '.join(repr(k) for k in self.state)}",
                         attr="initial_state",
                         obj=self,
                     )
                 if not (isinstance(value, Distribution) or is_array_like(value)):
                     raise ValidationError(
-                        "State variable %r must be a distribution or array-like"
-                        % (name,),
+                        f"State variable '{name}' must be a distribution or array-like",
                         attr="initial_state",
                         obj=self,
                     )
@@ -121,8 +120,7 @@ class NeuronType(FrozenObject):
             x = x[:, np.newaxis]
         elif x.ndim >= 3 or x.shape[1] != gain.shape[0]:
             raise ValidationError(
-                "Expected shape (%d, %d); got %s."
-                % (x.shape[0], gain.shape[0], x.shape),
+                f"Expected shape {(x.shape[0], gain.shape[0])}; got {x.shape}.",
                 attr="x",
                 obj=self,
             )
@@ -181,9 +179,15 @@ class NeuronType(FrozenObject):
             Jr *= 2
         else:
             if J_threshold is None:
-                raise RuntimeError("Could not find firing threshold")
+                raise ValidationError(
+                    "Could not find firing threshold",
+                    attr="max_rates,intercepts",
+                    obj=self,
+                )
             if J_max is None:
-                raise RuntimeError("Could not find max current")
+                raise ValidationError(
+                    "Could not find max current", attr="max_rates", obj=self
+                )
 
         J = np.linspace(J_threshold, J_max, J_steps)
         rate = self.rates(J, gain, bias).squeeze(axis=1)
@@ -200,8 +204,8 @@ class NeuronType(FrozenObject):
         dtype = rc.float_dtype if dtype is None else dtype
         state = {}
         initial_state = {} if self.initial_state is None else self.initial_state
-        for name in self.state:
-            dist = initial_state.get(name, self.state[name])
+        for name, default_value in self.state.items():
+            dist = initial_state.get(name, default_value)
             state[name] = get_samples(dist, n=n_neurons, d=None, rng=rng).astype(
                 dtype, copy=False
             )
@@ -288,19 +292,19 @@ class NeuronType(FrozenObject):
         """
         raise NotImplementedError("Neurons must provide step")
 
-    def step_math(self, dt, J, **state):
+    def step_math(self, dt, J, output, **state):
         warnings.warn(
             "'step_math' has been renamed to 'step'. This alias will be removed "
             "in Nengo 4.0"
         )
-        return self.step(dt, J, **state)
+        return self.step(dt, J, output, **state)
 
 
 class NeuronTypeParam(Parameter):
 
     equatable = True
 
-    def coerce(self, instance, neurons):
+    def coerce(self, instance, neurons):  # pylint: disable=arguments-renamed
         self.check_type(instance, neurons, NeuronType)
         return super().coerce(instance, neurons)
 
@@ -451,8 +455,8 @@ class Sigmoid(NeuronType):
         inv_tau_ref = 1.0 / self.tau_ref
         if not np.all(max_rates < inv_tau_ref):
             raise ValidationError(
-                "Max rates must be below the inverse refractory period (%0.3f)"
-                % (inv_tau_ref,),
+                "Max rates must be below the inverse "
+                f"refractory period ({inv_tau_ref:0.3f})",
                 attr="max_rates",
                 obj=self,
             )
@@ -501,8 +505,8 @@ class Tanh(NeuronType):
         inv_tau_ref = 1.0 / self.tau_ref
         if not np.all(max_rates < inv_tau_ref):
             raise ValidationError(
-                "Max rates must be below the inverse refractory period (%0.3f)"
-                % inv_tau_ref,
+                "Max rates must be below the inverse "
+                f"refractory period ({inv_tau_ref:0.3f})",
                 attr="max_rates",
                 obj=self,
             )
@@ -650,7 +654,7 @@ class LIFRate(NeuronType):
         if not np.all(max_rates < inv_tau_ref):
             raise ValidationError(
                 "Max rates must be below the inverse "
-                "refractory period (%0.3f)" % inv_tau_ref,
+                f"refractory period ({inv_tau_ref:0.3f})",
                 attr="max_rates",
                 obj=self,
             )
@@ -734,6 +738,10 @@ class LIF(LIFRate):
         self.min_voltage = min_voltage
 
     def step(self, dt, J, output, voltage, refractory_time):
+        # look these up once to avoid repeated parameter accesses
+        tau_rc = self.tau_rc
+        min_voltage = self.min_voltage
+
         # reduce all refractory times by dt
         refractory_time -= dt
 
@@ -746,20 +754,20 @@ class LIF(LIFRate):
         # update voltage using discretized lowpass filter
         # since v(t) = v(0) + (J - v(0))*(1 - exp(-t/tau)) assuming
         # J is constant over the interval [t, t + dt)
-        voltage -= (J - voltage) * np.expm1(-delta_t / self.tau_rc)
+        voltage -= (J - voltage) * np.expm1(-delta_t / tau_rc)
 
         # determine which neurons spiked (set them to 1/dt, else 0)
         spiked_mask = voltage > 1
         output[:] = spiked_mask * (self.amplitude / dt)
 
         # set v(0) = 1 and solve for t to compute the spike time
-        t_spike = dt + self.tau_rc * np.log1p(
+        t_spike = dt + tau_rc * np.log1p(
             -(voltage[spiked_mask] - 1) / (J[spiked_mask] - 1)
         )
 
         # set spiked voltages to zero, refractory times to tau_ref, and
         # rectify negative voltages to a floor of min_voltage
-        voltage[voltage < self.min_voltage] = self.min_voltage
+        voltage[voltage < min_voltage] = min_voltage
         voltage[spiked_mask] = 0
         refractory_time[spiked_mask] = self.tau_ref + t_spike
 
@@ -1002,7 +1010,7 @@ class Izhikevich(NeuronType):
         # A more principled minimum value would be better.
         J = np.maximum(-30.0, J)
 
-        dV = (0.04 * voltage ** 2 + 5 * voltage + 140 - recovery + J) * 1000
+        dV = (0.04 * voltage**2 + 5 * voltage + 140 - recovery + J) * 1000
         voltage[:] += dV * dt
 
         # We check for spikes and reset the voltage here rather than after,
@@ -1034,16 +1042,16 @@ class RatesToSpikesNeuronType(NeuronType):
 
         if base_type.spiking:
             warnings.warn(
-                "'base_type' is type %r, which is a spiking neuron type. We recommend "
-                "using the non-spiking equivalent type, if one exists."
-                % (type(base_type).__name__)
+                f"'base_type' is type '{type(base_type).__name__}', which is a spiking "
+                "neuron type. We recommend using the non-spiking equivalent type, "
+                "if one exists."
             )
 
         for s in self.state:
             if s in self.base_type.state:
                 raise ValidationError(
-                    "%s and %s have overlapping state variable (%s)"
-                    % (self, self.base_type, s),
+                    f"{self} and {self.base_type} have an overlapping "
+                    f"state variable ({s})",
                     attr="state",
                     obj=self,
                 )
@@ -1056,6 +1064,9 @@ class RatesToSpikesNeuronType(NeuronType):
 
     def rates(self, x, gain, bias):
         return self.base_type.rates(x, gain, bias)
+
+    def step(self, dt, J, output, **state):
+        raise NotImplementedError("Subclasses must implement step")
 
     @property
     def probeable(self):
@@ -1082,7 +1093,8 @@ class RegularSpiking(RatesToSpikesNeuronType):
     ----------
     .. [1] Voelker, A. R., Rasmussen, D., & Eliasmith, C. (2020). A Spike in
        Performance: Training Hybrid-Spiking Neural Networks with Quantized Activation
-       Functions. arXiv preprint arXiv:2002.03553. (https://arxiv.org/abs/2002.03553)
+       Functions. arXiv preprint arXiv:2002.03553.
+       (https://export.arxiv.org/abs/2002.03553)
     """
 
     state = {"voltage": Uniform(low=0, high=1)}
@@ -1107,7 +1119,7 @@ class StochasticSpiking(RatesToSpikesNeuronType):
     Parameters
     ----------
     base_type : NeuronType
-        A rate-based neuron type to convert to a Poisson spiking neuron.
+        A rate-based neuron type to convert to a stochastic spiking neuron.
     amplitude : float
         Scaling factor on the neuron output. Corresponds to the relative
         amplitude of the output spikes of the neuron.

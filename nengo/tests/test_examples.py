@@ -1,7 +1,5 @@
-import os
-
-import pytest
 import _pytest.capture
+import pytest
 
 from nengo.utils.paths import examples_dir
 from nengo.utils.stdlib import execfile
@@ -10,11 +8,11 @@ try:
     from nengo.utils.ipython import export_py, iter_cells, load_notebook
 except ImportError as err:
 
-    def export_py(err=err, *args, **kwargs):
-        raise err
+    def export_py(*args, import_err=err, **kwargs):
+        raise import_err
 
-    def load_notebook(err=err, *args, **kwargs):
-        raise err
+    def load_notebook(*args, import_err=err, **kwargs):
+        raise import_err
 
 
 # Monkeypatch _pytest.capture.DontReadFromInput
@@ -28,53 +26,41 @@ _pytest.capture.DontReadFromInput.write = lambda: None
 _pytest.capture.DontReadFromInput.flush = lambda: None
 
 
-too_slow = [
-    "basal_ganglia",
-    "inhibitory_gating",
-    "izhikevich",
-    "learn_communication_channel",
-    "learn_product",
-    "learn_square",
-    "learn_unsupervised",
-    "lorenz_attractor",
-    "nef_algorithm",
-    "nef_summary",
-    "network_design",
-    "network_design_advanced",
-    "question",
-    "question_control",
-    "question_memory",
-    "spa_parser",
-    "spa_sequence",
-    "spa_sequence_routed",
+too_slow = {
+    "advanced/inhibitory-gating",
+    "advanced/izhikevich",
+    "advanced/nef-algorithm",
+    "advanced/nef-summary",
+    "dynamics/lorenz-attractor",
+    "learning/learn-communication-channel",
+    "learning/learn-product",
+    "learning/learn-square",
+    "learning/learn-unsupervised",
+    "learning/lmu",
+    "networks/basal-ganglia",
+    "usage/network-design",
+    "usage/network-design-advanced",
+}
+
+files = [
+    f for f in examples_dir.glob("**/*.ipynb") if ".ipynb_checkpoints" not in str(f)
 ]
+all_examples = [f.relative_to(examples_dir).with_suffix("") for f in files]
+slow_examples = [f for f in all_examples if f.as_posix() in too_slow]
+fast_examples = [f for f in all_examples if f.as_posix() not in too_slow]
 
-all_examples, slow_examples, fast_examples = [], [], []
-
-for subdir, _, files in os.walk(examples_dir):
-    if (os.path.sep + ".") in subdir:
-        continue
-    files = [f for f in files if f.endswith(".ipynb")]
-    examples = [os.path.join(subdir, os.path.splitext(f)[0]) for f in files]
-    all_examples.extend(examples)
-    slow_examples.extend(
-        [e for e, f in zip(examples, files) if os.path.splitext(f)[0] in too_slow]
-    )
-    fast_examples.extend(
-        [e for e, f in zip(examples, files) if os.path.splitext(f)[0] not in too_slow]
-    )
-
-# os.walk goes in arbitrary order, so sort after the fact to keep pytest happy
-all_examples.sort()
-slow_examples.sort()
-fast_examples.sort()
+# glob goes in arbitrary order, so sort after the fact to keep pytest happy
+# convert paths to literal strings so that they're displayed nicer in the pytest name
+all_examples = sorted(str(e) for e in all_examples)
+slow_examples = sorted(str(e) for e in slow_examples)
+fast_examples = sorted(str(e) for e in fast_examples)
 
 
-def assert_noexceptions(nb_file, tmpdir):
+def assert_noexceptions(nb_file, tmp_path):
     plt = pytest.importorskip("matplotlib.pyplot")
-    nb_path = os.path.join(examples_dir, "%s.ipynb" % nb_file)
+    nb_path = examples_dir / f"{nb_file}.ipynb"
     nb = load_notebook(nb_path)
-    pyfile = "%s.py" % (tmpdir.join(os.path.splitext(os.path.basename(nb_path))[0]))
+    pyfile = tmp_path / (nb_path.stem + ".py")
     export_py(nb, pyfile)
     execfile(pyfile, {})
     plt.close("all")
@@ -83,21 +69,22 @@ def assert_noexceptions(nb_file, tmpdir):
 @pytest.mark.example
 @pytest.mark.parametrize("nb_file", fast_examples)
 @pytest.mark.filterwarnings("ignore:Creating new attribute 'memory_location'")
-def test_fast_noexceptions(nb_file, tmpdir):
+@pytest.mark.filterwarnings("ignore:Matplotlib is currently using agg")
+def test_fast_noexceptions(nb_file, tmp_path):
     """Ensure that no cells raise an exception."""
     pytest.importorskip("IPython", minversion="3.0")
     pytest.importorskip("jinja2")
-    assert_noexceptions(nb_file, tmpdir)
+    assert_noexceptions(nb_file, tmp_path)
 
 
 @pytest.mark.slow
 @pytest.mark.example
 @pytest.mark.parametrize("nb_file", slow_examples)
-def test_slow_noexceptions(nb_file, tmpdir):
+def test_slow_noexceptions(nb_file, tmp_path):
     """Ensure that no cells raise an exception."""
     pytest.importorskip("IPython", minversion="3.0")
     pytest.importorskip("jinja2")
-    assert_noexceptions(nb_file, tmpdir)
+    assert_noexceptions(nb_file, tmp_path)
 
 
 @pytest.mark.example
@@ -105,7 +92,7 @@ def test_slow_noexceptions(nb_file, tmpdir):
 def test_no_outputs(nb_file):
     """Ensure that no cells have output."""
     pytest.importorskip("IPython", minversion="3.0")
-    nb = load_notebook(os.path.join(examples_dir, "%s.ipynb" % nb_file))
+    nb = load_notebook(examples_dir / f"{nb_file}.ipynb")
     for cell in iter_cells(nb):
         assert cell.outputs == [], "Cell outputs not cleared"
         assert cell.execution_count is None, "Execution count not cleared"
@@ -115,7 +102,7 @@ def test_no_outputs(nb_file):
 @pytest.mark.parametrize("nb_file", all_examples)
 def test_version_4(nb_file):
     pytest.importorskip("IPython", minversion="3.0")
-    nb = load_notebook(os.path.join(examples_dir, "%s.ipynb" % nb_file))
+    nb = load_notebook(examples_dir / f"{nb_file}.ipynb")
     assert nb.nbformat == 4
 
 
@@ -123,7 +110,7 @@ def test_version_4(nb_file):
 @pytest.mark.parametrize("nb_file", all_examples)
 def test_minimal_metadata(nb_file):
     pytest.importorskip("IPython", minversion="3.0")
-    nb = load_notebook(os.path.join(examples_dir, "%s.ipynb" % nb_file))
+    nb = load_notebook(examples_dir / f"{nb_file}.ipynb")
 
     assert "kernelspec" not in nb.metadata
     assert "signature" not in nb.metadata

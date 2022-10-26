@@ -3,13 +3,24 @@ import pytest
 
 import nengo
 from nengo.builder import Builder
-from nengo.builder.operator import Reset, Copy
+from nengo.builder.ensemble import get_activities
+from nengo.builder.learning_rules import SimRLS
+from nengo.builder.operator import Copy, Reset
 from nengo.builder.signal import Signal
 from nengo.dists import UniformHypersphere
-from nengo.exceptions import ValidationError
-from nengo.learning_rules import LearningRuleTypeParam, PES, BCM, Oja, Voja
+from nengo.exceptions import BuildError, ValidationError
+from nengo.learning_rules import (
+    BCM,
+    PES,
+    RLS,
+    LearningRuleType,
+    LearningRuleTypeParam,
+    Oja,
+    Voja,
+)
 from nengo.processes import WhiteSignal
 from nengo.synapses import Alpha, Lowpass
+from nengo.utils.numpy import nrmse
 
 
 def best_weights(weight_data):
@@ -31,6 +42,7 @@ def _test_pes(
     function=None,
     transform=np.array(1.0),
     rate=1e-3,
+    post_slice=None,
 ):
     vout = np.array(vin) if vout is None else vout
 
@@ -45,9 +57,16 @@ def _test_pes(
 
         nengo.Connection(stim, pre)
 
-        postslice = post[: target.size_out] if target.size_out < stim.size_out else post
         pre = pre.neurons if pre_neurons else pre
-        post = post.neurons if post_neurons else postslice
+        if post_slice is None:
+            post_decoded = post
+            post = post.neurons if post_neurons else post
+        else:
+            # if post_neurons and post_slice then we're doing the slicing in the
+            # neuron space, so leave the decoded output un-sliced
+            post_decoded = post if post_neurons else post[post_slice]
+            post = post.neurons if post_neurons else post
+            post = post[post_slice]
 
         conn = nengo.Connection(
             pre,
@@ -60,10 +79,10 @@ def _test_pes(
             conn.solver = nengo.solvers.LstsqL2(weights=True)
 
         nengo.Connection(target, error, transform=-1)
-        nengo.Connection(postslice, error)
+        nengo.Connection(post_decoded, error)
         nengo.Connection(error, conn.learning_rule)
 
-        post_p = nengo.Probe(postslice, synapse=0.03)
+        post_p = nengo.Probe(post_decoded, synapse=0.03)
         error_p = nengo.Probe(error, synapse=0.03)
 
         weights_p = nengo.Probe(conn, "weights", sample_every=0.01)
@@ -84,7 +103,9 @@ def _test_pes(
     tend = t > 0.4
     assert allclose(sim.data[post_p][tend], vout, atol=0.05)
     assert allclose(sim.data[error_p][tend], 0, atol=0.05)
-    assert not allclose(weights[0], weights[-1], atol=1e-5, record_rmse=False)
+    assert not allclose(
+        weights[0], weights[-1], atol=1e-5, record_rmse=False, print_fail=0
+    )
 
 
 def test_pes_ens_ens(Simulator, NonDirectNeuronType, plt, seed, allclose):
@@ -104,7 +125,15 @@ def test_pes_ens_slice(Simulator, plt, seed, allclose):
     vout = [vin[0] ** 2 + vin[1] ** 2]
     function = lambda x: [x[0] - x[1]]
     _test_pes(
-        Simulator, nengo.LIF, plt, seed, allclose, vin=vin, vout=vout, function=function
+        Simulator,
+        nengo.LIF,
+        plt,
+        seed,
+        allclose,
+        vin=vin,
+        vout=vout,
+        function=function,
+        post_slice=slice(0, 1),
     )
 
 
@@ -125,6 +154,24 @@ def test_pes_neuron_neuron(Simulator, plt, seed, rng, allclose):
     )
 
 
+def test_pes_neuron_neuron_slice(Simulator, plt, seed, rng, allclose):
+    n = 200
+    initial_weights = rng.uniform(high=4e-4, size=(n // 2, n))
+    _test_pes(
+        Simulator,
+        nengo.LIF,
+        plt,
+        seed,
+        allclose,
+        pre_neurons=True,
+        post_neurons=True,
+        n=n,
+        transform=initial_weights,
+        rate=7e-4,
+        post_slice=slice(0, n // 2),
+    )
+
+
 def test_pes_neuron_ens(Simulator, plt, seed, rng, allclose):
     n = 200
     initial_weights = rng.uniform(high=1e-4, size=(2, n))
@@ -138,6 +185,23 @@ def test_pes_neuron_ens(Simulator, plt, seed, rng, allclose):
         post_neurons=False,
         n=n,
         transform=initial_weights,
+    )
+
+
+def test_pes_ens_neurons(Simulator, plt, seed, allclose):
+    n = 200
+    initial_weights = np.ones((n, 2))
+    _test_pes(
+        Simulator,
+        nengo.LIF,
+        plt,
+        seed,
+        allclose,
+        pre_neurons=False,
+        post_neurons=True,
+        n=n,
+        transform=initial_weights,
+        rate=1e-4,
     )
 
 
@@ -284,6 +348,73 @@ def test_pes_cycle(Simulator):
         pass
 
 
+def test_pes_adv_idx(Simulator):
+    with nengo.Network() as net:
+        pre = nengo.Ensemble(10, 1)
+        post = nengo.Ensemble(10, 1)
+        nengo.Connection(
+            pre.neurons,
+            post.neurons[[0, 2, 3]],
+            learning_rule_type=nengo.PES(),
+            transform=np.ones((3, pre.n_neurons)),
+        )
+
+    with pytest.raises(BuildError, match="does not support advanced indexing"):
+        Simulator(net)
+
+
+@pytest.mark.parametrize(
+    "pre_neurons,post_neurons,weight_solver",
+    [
+        (True, True, False),
+        (True, False, False),
+        (False, True, False),
+        (False, False, True),
+        (False, False, False),
+    ],
+)
+@pytest.mark.parametrize("pre_slice", (True, False))
+@pytest.mark.parametrize("post_slice", (True, False))
+def test_pes_pre_post_varieties(
+    Simulator, pre_neurons, post_neurons, weight_solver, pre_slice, post_slice
+):
+
+    with nengo.Network() as net:
+        pre = nengo.Ensemble(10, 12)
+        post = nengo.Ensemble(20, 22)
+        pre_size = pre.n_neurons if pre_neurons else pre.dimensions
+        post_size = post.n_neurons if post_neurons else post.dimensions
+        if pre_slice:
+            pre_size //= 2
+            pre_slice = slice(0, pre_size)
+        else:
+            pre_slice = slice(None)
+        if post_slice:
+            post_size //= 2
+            post_slice = slice(0, post_size)
+        else:
+            post_slice = slice(None)
+
+        nengo.Connection(
+            (pre.neurons if pre_neurons else pre)[pre_slice],
+            (post.neurons if post_neurons else post)[post_slice],
+            solver=nengo.solvers.LstsqL2(weights=weight_solver),
+            learning_rule_type=nengo.PES(),
+            transform=np.ones((post_size, pre_size)),
+        )
+
+    apply_encoders = post_neurons or (
+        not pre_neurons and not post_neurons and weight_solver
+    )
+
+    with Simulator(net) as sim:
+        assert (
+            any(op.tag == "PES:encode" for op in sim.model.operators) == apply_encoders
+        )
+
+        sim.step()
+
+
 @pytest.mark.parametrize(
     "rule_type, solver",
     [
@@ -332,7 +463,7 @@ def test_unsupervised(Simulator, rule_type, solver, seed, rng, plt, allclose):
     plt.ylabel("Weights")
 
     assert not allclose(
-        sim.data[weights_p][0], sim.data[weights_p][-1], record_rmse=False
+        sim.data[weights_p][0], sim.data[weights_p][-1], record_rmse=False, print_fail=0
     )
 
 
@@ -393,7 +524,10 @@ def test_dt_dependence(Simulator, plt, learning_rule, seed, rng, allclose):
 
     assert allclose(trans_data[0], trans_data[1], atol=3e-3)
     assert not allclose(
-        sim.data[m.weights_p][0], sim.data[m.weights_p][-1], record_rmse=False
+        sim.data[m.weights_p][0],
+        sim.data[m.weights_p][-1],
+        record_rmse=False,
+        print_fail=0,
     )
 
 
@@ -475,8 +609,8 @@ def test_learningrule_attr(seed):
         c3 = nengo.Connection(a.neurons, b.neurons, learning_rule_type=r3, transform=T)
         assert isinstance(c3.learning_rule, dict)
         assert set(c3.learning_rule) == set(r3)  # assert same keys
-        for key in r3:
-            check_rule(c3.learning_rule[key], c3, r3[key])
+        for key, value in r3.items():
+            check_rule(c3.learning_rule[key], c3, value)
 
 
 def test_voja_encoders(Simulator, PositiveNeuronType, rng, seed, allclose):
@@ -574,7 +708,129 @@ def test_voja_modulate(Simulator, NonDirectNeuronType, seed, allclose):
 
     # Check that encoders changed during first 0.5s
     i = np.where(tend)[0][0]  # first time point after changeover
-    assert not allclose(sim.data[p_enc][0], sim.data[p_enc][i], record_rmse=False)
+    assert not allclose(
+        sim.data[p_enc][0], sim.data[p_enc][i], record_rmse=False, print_fail=0
+    )
+
+
+def _test_rls_network(
+    Simulator,
+    seed,
+    plt,
+    tols,
+    dims=1,
+    lrate=0.01,
+    neuron_type=nengo.LIFRate(),
+    tau=None,
+    t_train=0.5,
+    t_test=0.25,
+):
+    # Input is a scalar sinusoid with given frequency
+    n_neurons = 100
+    freq = 5
+
+    # Learn a linear transformation within t_train seconds
+    transform = np.random.RandomState(seed=seed).randn(dims, 1)
+    lr = RLS(learning_rate=lrate, pre_synapse=tau)
+
+    with nengo.Network(seed=seed) as model:
+        u = nengo.Node(output=lambda t: np.sin(freq * 2 * np.pi * t))
+        x = nengo.Ensemble(n_neurons, 1, neuron_type=neuron_type)
+        y = nengo.Node(size_in=dims)
+        y_on = nengo.Node(size_in=dims)
+        y_off = nengo.Node(size_in=dims)
+
+        e = nengo.Node(
+            size_in=dims, output=lambda t, e: e if t < t_train else np.zeros_like(e)
+        )
+
+        nengo.Connection(u, y, synapse=None, transform=transform)
+        nengo.Connection(u, x, synapse=None)
+        conn_on = nengo.Connection(
+            x,
+            y_on,
+            synapse=None,
+            learning_rule_type=lr,
+            function=lambda _: np.zeros(dims),
+        )
+        nengo.Connection(y, e, synapse=None, transform=-1)
+        nengo.Connection(y_on, e, synapse=None)
+        nengo.Connection(e, conn_on.learning_rule, synapse=tau)
+
+        nengo.Connection(x, y_off, synapse=None, transform=transform)
+
+        p_y = nengo.Probe(y, synapse=tau)
+        p_y_on = nengo.Probe(y_on, synapse=tau)
+        p_y_off = nengo.Probe(y_off, synapse=tau)
+        p_inv_gamma = nengo.Probe(conn_on.learning_rule, "inv_gamma")
+
+    with Simulator(model) as sim:
+        sim.run(t_train + t_test)
+
+    plt.plot(sim.trange(), sim.data[p_y_off], "k")
+    plt.plot(sim.trange(), sim.data[p_y_on])
+
+    # Check _descstr
+    ops = [op for op in sim.model.operators if isinstance(op, SimRLS)]
+    assert len(ops) == 1
+    assert str(ops[0]).startswith("SimRLS")
+
+    test = sim.trange() >= t_train
+
+    on_versus_off = nrmse(sim.data[p_y_on][test], sim.data[p_y_off][test])
+    on_versus_ideal = nrmse(sim.data[p_y_on][test], sim.data[p_y][test])
+    off_versus_ideal = nrmse(sim.data[p_y_off][test], sim.data[p_y][test])
+
+    A = get_activities(sim.data[x], x, np.linspace(-1, 1, 1000)[:, None])
+    gamma_off = A.T.dot(A) + np.eye(n_neurons) / lr.learning_rate
+    gamma_on = np.linalg.inv(sim.data[p_inv_gamma][-1])
+
+    gamma_off /= np.linalg.norm(gamma_off)
+    gamma_on /= np.linalg.norm(gamma_on)
+    gamma_diff = nrmse(gamma_on, gamma_off)
+
+    print()
+    print(on_versus_off, on_versus_ideal, off_versus_ideal, gamma_diff)
+    print()
+    assert on_versus_off < tols[0]
+    assert on_versus_ideal < tols[1]
+    assert off_versus_ideal < tols[2]
+    assert gamma_diff < tols[3]
+
+
+def test_rls_scalar_rate(Simulator, seed, plt):
+    # use artificially high rate to ensure we can make error arbitrarily small
+    _test_rls_network(
+        Simulator,
+        seed,
+        plt,
+        lrate=100,
+        tols=[0.02, 3e-3, 0.02, 0.3],
+    )
+
+
+def test_rls_multidim(Simulator, seed, plt):
+    # use artificially high rate to ensure we can make error arbitrarily small
+    _test_rls_network(
+        Simulator,
+        seed,
+        plt,
+        dims=11,
+        lrate=100,
+        tols=[0.02, 3e-3, 0.02, 0.3],
+    )
+
+
+def test_rls_scalar_spiking(Simulator, seed, plt):
+    _test_rls_network(
+        Simulator,
+        seed,
+        plt,
+        neuron_type=nengo.LIF(),
+        lrate=0.05,
+        tau=0.01,
+        tols=[0.04, 0.05, 0.04, 0.3],
+    )
 
 
 def test_frozen():
@@ -620,13 +876,14 @@ def test_custom_type(Simulator, allclose):
         def __init__(self):
             super().__init__(1.0, size_in=3)
 
-    @Builder.register(TestRule)
     def build_test_rule(model, _, rule):
         error = Signal(np.zeros(rule.connection.size_in))
         model.add_op(Reset(error))
         model.sig[rule]["in"] = error[: rule.size_in]
 
         model.add_op(Copy(error, model.sig[rule]["delta"]))
+
+    Builder.register(TestRule)(build_test_rule)
 
     with nengo.Network() as net:
         a = nengo.Ensemble(10, 1)
@@ -706,3 +963,127 @@ def test_null_error():
 
         # works with encoder learning rules (since they don't require a transform)
         nengo.Connection(a.neurons, b, learning_rule_type=Voja(), transform=None)
+
+
+def test_high_learning_rate_warning():
+    with pytest.warns(UserWarning, match="learning rate is very high"):
+        nengo.PES(learning_rate=1e32)
+
+
+def test_learning_post_error():
+    with nengo.Network():
+        ens = nengo.Ensemble(10, 1)
+        conn = nengo.Connection(ens, ens, learning_rule_type=nengo.PES())
+
+        with pytest.raises(ValidationError, match="'post' must.*'Ensemble', 'Neurons"):
+            nengo.Connection(ens, conn.learning_rule, learning_rule_type=nengo.PES())
+
+
+def test_encoder_learning_post_errors():
+    with nengo.Network():
+        ens = nengo.Ensemble(2, 2)
+
+        with pytest.raises(ValidationError, match="'post' must be of type 'Ensemble'"):
+            nengo.Connection(
+                ens,
+                nengo.Node(size_in=2),
+                learning_rule_type=nengo.Voja(),
+            )
+
+        with pytest.raises(ValidationError, match="encoders are not used"):
+            nengo.Connection(
+                ens,
+                ens,
+                solver=nengo.solvers.LstsqL2(weights=True),
+                learning_rule_type=nengo.Voja(),
+            )
+
+
+def test_bad_learning_rule_modifies(Simulator):
+    class BadCustomRule(nengo.learning_rules.LearningRuleType):
+        modifies = "badval"  # start with a bad value to hit API check
+
+    class TrickCustomRule(nengo.learning_rules.LearningRuleType):
+        # start with a valid value, then switch once we pass API check
+        modifies = "encoders"
+
+    with nengo.Network() as net:
+        ens = nengo.Ensemble(2, 2)
+
+        with pytest.raises(ValidationError, match="Unrecognized target 'badval'"):
+            nengo.Connection(ens, ens, learning_rule_type=BadCustomRule())
+
+        nengo.Connection(ens, ens, learning_rule_type=TrickCustomRule())
+
+    TrickCustomRule.modifies = "badvalue"  # switch to invalid value
+    with pytest.raises(BuildError, match="Unknown target 'badvalue'"):
+        with Simulator(net):
+            pass
+
+
+def test_learning_rule_size_in_strings():
+    class CustomLR(LearningRuleType):
+        modifies = "decoders"
+
+    with nengo.Network():
+        a = nengo.Ensemble(10, 5)
+        b = nengo.Ensemble(10, 2)
+
+        ref = {
+            "pre": 5,
+            "mid": 3,
+            "post": 2,
+            "pre_state": 5,
+            "post_state": 2,
+        }
+        for size_in, correct_size_in in ref.items():
+            conn = nengo.Connection(
+                a,
+                b,
+                function=lambda x: x[:3],
+                transform=np.ones((2, 3)),
+                learning_rule_type=CustomLR(size_in=size_in),
+            )
+            assert conn.learning_rule.size_in == correct_size_in
+
+    with pytest.raises(ValidationError, match="is not a valid string value"):
+        LearningRuleType(size_in="badval")
+
+
+def test_bad_weight_learning_rule_transform_shape():
+    with nengo.Network():
+        ens = nengo.Ensemble(5, 1)
+
+        with pytest.raises(ValidationError, match="Transform.*post_neurons x pre_neur"):
+            nengo.Connection(
+                ens,
+                ens.neurons,
+                transform=np.ones((5, 1)),
+                learning_rule_type=nengo.BCM(),
+            )
+
+
+def test_probeable():
+    net = nengo.Network()
+
+    def check_learning_rule(learning_rule_type, expected, net=net):
+        assert learning_rule_type.probeable == expected
+        post = net.e if isinstance(learning_rule_type, Voja) else net.n
+        transform = np.ones((1, 10)) if isinstance(learning_rule_type, Voja) else 1.0
+        conn = nengo.Connection(
+            net.n, post, transform=transform, learning_rule_type=learning_rule_type
+        )
+        assert conn.learning_rule.probeable == expected
+
+    with net:
+        net.e = nengo.Ensemble(10, 1)
+        net.n = net.e.neurons
+        check_learning_rule(nengo.PES(), ("error", "activities", "delta"))
+        check_learning_rule(
+            nengo.RLS(), ("pre_filtered", "error", "delta", "inv_gamma")
+        )
+        check_learning_rule(
+            nengo.BCM(), ("theta", "pre_filtered", "post_filtered", "delta")
+        )
+        check_learning_rule(nengo.Oja(), ("pre_filtered", "post_filtered", "delta"))
+        check_learning_rule(nengo.Voja(), ("post_filtered", "scaled_encoders", "delta"))

@@ -19,8 +19,67 @@ Release history
    - Removed
    - Fixed
 
-3.1.0 (unreleased)
+3.2.1 (unreleased)
 ==================
+
+**Added**
+
+- Added ``groups`` parameter to ``nengo.Convolution``. (`#1675`_, `#1684`_)
+
+.. _#1675: https://github.com/nengo/nengo/issues/1675
+.. _#1684: https://github.com/nengo/nengo/pull/1684
+
+3.2.0 (January 27, 2022)
+========================
+
+**Added**
+
+- Added official support for Python 3.9. (`#1660`_)
+- Added ``ChannelShape.from_space_and_channels`` to easily construct a
+  ``ChannelShape`` from a spatial shape and number of channels. (`#1648`_)
+- Added the ``ConvolutionTranspose`` transform to perform transposed convolution.
+  It is commonly used for various forms of upsampling in deep networks. (`#1648`_)
+- Added ``Conv`` and ``ConvTranspose`` aliases for ``Convolution`` and
+  ``ConvolutionTranspose``. (`#1648`_)
+
+**Changed**
+
+- The minimum supported NumPy version is now 1.19, as earlier versions are
+  no longer officially supported. (`NEP-29`_, `#1683`_)
+
+**Removed**
+
+- Removed support for Python 3.5 (which reached its end of life in
+  September 2020). (`#1649`_)
+- Removed ``nengo.utils.graphs.graph`` (this was a small utility function for building
+  graphs that was only used in tests). (`#1654`_)
+- Removed ``simulator.ProbeDict`` alias; this was previously renamed to
+  ``simulator.SimulationData``. (`#1649`_)
+
+**Fixed**
+
+- Fixed a bug with a problematic cache index breaking decoder solvers. The solver now
+  avoids using the cache, rather than crashing. (`#1649`_)
+- Operator graph step order will now be deterministic. (`#1654`_)
+- Fixed an issue in which some simulators could not be reset due to signals
+  not being marked as readonly. (`#1676`_)
+- Fixed an inconsistency in which normal ``Node`` output functions would receive
+  a copy of the input signal, while ``Process`` step functions would not.
+  ``Process`` step functions now also receive copies. (`#1679`_)
+- Duplicate keys in ``Neurons.probeable`` have been removed. (`#1681`_)
+
+.. _#1648: https://github.com/nengo/nengo/pull/1648
+.. _#1649: https://github.com/nengo/nengo/pull/1649
+.. _#1654: https://github.com/nengo/nengo/pull/1654
+.. _#1660: https://github.com/nengo/nengo/pull/1660
+.. _#1676: https://github.com/nengo/nengo/pull/1676
+.. _#1679: https://github.com/nengo/nengo/pull/1679
+.. _#1681: https://github.com/nengo/nengo/pull/1681
+.. _#1683: https://github.com/nengo/nengo/pull/1683
+.. _NEP-29: https://numpy.org/neps/nep-0029-deprecation_policy.html
+
+3.1.0 (November 17, 2020)
+=========================
 
 **Added**
 
@@ -46,9 +105,18 @@ Release history
   as are commonly used to match biological spiking statistics. (`#1609`_)
 - Added the ``PositiveNeuronType`` test argument to run tests on all neuron types
   for which ``negative`` is not ``True``. (`#1609`_)
+- Added the ``QuasirandomSequence`` distribution, which is similar to
+  ``Uniform`` but spreads points across the space evenly. (`#1611`_)
+- Added the ``ScatteredHypersphere`` distribution, which is similar to
+  ``UniformHypersphere`` but spreads points across the space more evenly. (`#1611`_)
+- Added the ``RLS`` (recursive least-squares) learning rule, which is an online
+  version of the least-squares method typically used for offline decoder-solving.
+  (`#1611`_, `example <learn-product_>`__)
+- Added the ``SimProbe`` operator, which marks a signal as being probed. (`#1653`_)
 
 **Changed**
 
+- Nengo is now compatible with Python 3.8. (`#1628`_)
 - The default Connection transform is now ``None``, meaning that there will be
   no transform applied. This only changes behavior when learning on a
   neuron-neuron connection with the default scalar transform. In that situation
@@ -72,11 +140,20 @@ Release history
   For connections that are not between ``Ensembles``, though, weight solvers have the
   same effects as solvers with ``weights=False``, and a warning will be raised.
   (`#1626 <https://github.com/nengo/nengo/pull/1626>`__)
+- Various improvements to simulation speed. (`#1629`_)
+- ``EnsembleArray`` now raises an error if ``add_output`` would
+  overwrite an existing attribute. (`#1611`_)
+- The ``encoders`` and ``eval_points`` of ``Ensemble`` are now sampled from
+  ``ScatteredHypersphere`` by default. (`#1611`_)
+- Trying to re-open a closed Simulator will now raise an error. (`#1599`_)
 
 **Deprecated**
 
 - ``NeuronType.step`` replaces the ``NeuronType.step_math`` method,
   which will be removed in Nengo 4.0.0. (`#1609`_)
+- ``Connection.is_decoded`` is deprecated, as the definition of whether a Connection
+  is decoded or not was ambiguous. Instead we recommend directly checking the pre/post
+  objects for the properties of interest. (`#1640`_)
 
 **Fixed**
 
@@ -90,8 +167,28 @@ Release history
 - Fixed a bug where the ``LstsqDrop`` solver errored when solving for zero weights.
   (`#1541 <https://github.com/nengo/nengo/issues/1541>`__,
   `#1607 <https://github.com/nengo/nengo/pull/1607>`__)
+- Fixed a bug in the validation of ``Choice`` distributions. (`#1630`_)
+- Fixed a bug where a ``Signal`` did not register as sharing memory with itself.
+  (`#1627`_)
+- Fixed a shape error when applying PES learning to a neuron-to-neuron connection with a
+  slice on the post-synaptic neurons. (`#1640`_)
+- Fixed a shape error when applying PES learning to a neuron->ensemble connection with
+  a weight solver. (`#1640`_)
+- Fixed a shape error when applying PES learning to an ensemble->neuron connection.
+  (`#1640`_)
+- Fixed a shape error when applying PES learning with a slice on the pre-synaptic
+  object. (`#1640`_)
 
+.. _#1599: https://github.com/nengo/nengo/pull/1599
 .. _#1609: https://github.com/nengo/nengo/pull/1609
+.. _#1611: https://github.com/nengo/nengo/pull/1611
+.. _#1627: https://github.com/nengo/nengo/pull/1627
+.. _#1628: https://github.com/nengo/nengo/pull/1628
+.. _#1629: https://github.com/nengo/nengo/pull/1629
+.. _#1630: https://github.com/nengo/nengo/pull/1630
+.. _#1640: https://github.com/nengo/nengo/pull/1640
+.. _#1653: https://github.com/nengo/nengo/pull/1653
+.. _learn-product: https://www.nengo.ai/nengo/examples/learning/learn-product.html
 
 3.0.0 (November 18, 2019)
 =========================
@@ -291,15 +388,15 @@ Release history
   external `pytest-plt <https://www.nengo.ai/pytest-plt/>`__ package instead.
   (`#1566 <https://github.com/nengo/nengo/pull/1566>`__)
 - The internal ``logger`` fixture has been removed. Use pytest's
-  `log capturing <https://docs.pytest.org/en/latest/logging.html>`__ instead.
-  (`#1566 <https://github.com/nengo/nengo/pull/1566>`__)
+  `log capturing <https://docs.pytest.org/en/stable/how-to/logging.html>`__
+  instead. (`#1566 <https://github.com/nengo/nengo/pull/1566>`__)
 - Removed ``nengo.log`` and ``nengo.utils.logging``. Use the standard Python
   and pytest logging modules instead.
   (`#1566 <https://github.com/nengo/nengo/pull/1566>`__)
 - The internal ``analytics`` and ``analytics_data`` fixtures have been removed.
-  Use pytest's `cache fixture <https://docs.pytest.org/en/latest/cache.html>`__
-  instead.
-  (`#1566 <https://github.com/nengo/nengo/pull/1566>`__)
+  Use pytest's
+  `cache fixture <https://docs.pytest.org/en/stable/how-to/cache.html>`__
+  instead. (`#1566 <https://github.com/nengo/nengo/pull/1566>`__)
 - The ``RefSimulator`` fixture has been removed. Use the ``Simulator`` fixture
   and the ``nengo_test_unsupported`` configuration option instead.
   (`#1566 <https://github.com/nengo/nengo/pull/1566>`__)

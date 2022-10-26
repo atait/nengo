@@ -2,17 +2,17 @@ from nengo.base import NengoObject, NengoObjectParam, ObjView
 from nengo.config import Config
 from nengo.connection import Connection, LearningRule
 from nengo.exceptions import ValidationError
-from nengo.params import Default, ConnectionDefault, NumberParam, Parameter, StringParam
+from nengo.params import ConnectionDefault, Default, NumberParam, Parameter, StringParam
 from nengo.solvers import SolverParam
 from nengo.synapses import SynapseParam
 
 
 class TargetParam(NengoObjectParam):
-    def coerce(self, probe, target):
+    def coerce(self, probe, target):  # pylint: disable=arguments-renamed
         obj = target.obj if isinstance(target, ObjView) else target
         if not hasattr(obj, "probeable"):
             raise ValidationError(
-                "Type %r is not probeable" % type(obj).__name__,
+                f"Type '{type(obj).__name__}' is not probeable",
                 attr=self.name,
                 obj=probe,
             )
@@ -28,12 +28,12 @@ class TargetParam(NengoObjectParam):
 class AttributeParam(StringParam):
     coerce_defaults = False
 
-    def coerce(self, probe, attr):
+    def coerce(self, probe, attr):  # pylint: disable=arguments-renamed
         value = super().coerce(probe, attr)
         if attr not in probe.obj.probeable:
             raise ValidationError(
-                "Attribute %r is not probeable on %s.\n"
-                "Probeable attributes: %s" % (attr, probe.obj, probe.obj.probeable),
+                f"Attribute '{attr}' is not probeable on {probe.obj}.\n"
+                f"Probeable attributes: {probe.obj.probeable}",
                 attr=self.name,
                 obj=probe,
             )
@@ -41,7 +41,7 @@ class AttributeParam(StringParam):
 
 
 class ProbeSolverParam(SolverParam):
-    def coerce(self, conn, solver):
+    def coerce(self, conn, solver):  # pylint: disable=arguments-renamed
         if solver is ConnectionDefault:
             solver = Config.default(Connection, "solver")
         return super().coerce(conn, solver)
@@ -135,19 +135,12 @@ class Probe(NengoObject):
         self.solver = solver
 
     def __repr__(self):
-        return "<Probe%s at 0x%x of '%s' of %s>" % (
-            "" if self.label is None else ' "%s"' % self.label,
-            id(self),
-            self.attr,
-            self.target,
-        )
+        label_txt = "" if self.label is None else f' "{self.label}"'
+        return f"<Probe{label_txt} at 0x{id(self):x} of '{self.attr}' of {self.target}>"
 
     def __str__(self):
-        return "<Probe%s of '%s' of %s>" % (
-            "" if self.label is None else ' "%s"' % self.label,
-            self.attr,
-            self.target,
-        )
+        label_txt = "" if self.label is None else f' "{self.label}"'
+        return f"<Probe{label_txt} of '{self.attr}' of {self.target}>"
 
     @property
     def obj(self):

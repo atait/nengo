@@ -8,8 +8,8 @@ import nengo.utils.numpy as npext
 from nengo.connection import ConnectionSolverParam
 from nengo.dists import Choice, UniformHypersphere
 from nengo.exceptions import BuildError, ValidationError
-from nengo.solvers import LstsqL2
 from nengo.processes import Piecewise
+from nengo.solvers import LstsqL2
 from nengo.transforms import Dense, NoTransform
 from nengo.utils.testing import signals_allclose
 
@@ -112,7 +112,7 @@ def test_node_to_ensemble(Simulator, NonDirectNeuronType, plt, seed, allclose):
 
         nengo.Connection(input_node, a, function=lambda x: -x[0])
         nengo.Connection(input_node[:1], b, function=lambda x: -x)
-        nengo.Connection(input_node, c, function=lambda x: -(x ** 2))
+        nengo.Connection(input_node, c, function=lambda x: -(x**2))
         nengo.Connection(
             input_node, d, function=lambda x: [-x[0], -(x[0] ** 2), -(x[1] ** 2)]
         )
@@ -321,6 +321,7 @@ def test_dist_transform(Simulator, seed, allclose):
 
 
 def test_weights(Simulator, AnyNeuronType, plt, seed, allclose):
+    """Tests connections using a solver with weights"""
     n1, n2 = 100, 50
 
     def func(t):
@@ -360,7 +361,7 @@ def test_weights(Simulator, AnyNeuronType, plt, seed, allclose):
 def test_configure_weight_solver(Simulator, seed, plt, allclose):
     """Ensures that connections that don't use the weight solver ignore it"""
     n1, n2 = 100, 101
-    function = lambda x: x ** 2
+    function = lambda x: x**2
 
     with nengo.Network(seed=seed) as net:
         net.config[nengo.Connection].solver = nengo.solvers.LstsqL2(weights=True)
@@ -545,8 +546,8 @@ def test_slicing(Simulator, AnyNeuronType, plt, seed, allclose):
 
     atol = 0.01 if AnyNeuronType is nengo.Direct else 0.1
     for i, [y, p, wp] in enumerate(zip(ys, probes, weight_probes)):
-        assert allclose(y, sim.data[p][-20:], atol=atol), "Failed %d" % i
-        assert allclose(y, sim.data[wp][-20:], atol=atol), "Weights %d" % i
+        assert allclose(y, sim.data[p][-20:], atol=atol), f"Failed {i}"
+        assert allclose(y, sim.data[wp][-20:], atol=atol), f"Weights {i}"
 
 
 def test_neuron_slicing(Simulator, plt, seed, rng, allclose):
@@ -660,7 +661,7 @@ def test_slicing_function(Simulator, plt, seed, allclose):
     """Test using a pre-slice and a function"""
     N = 300
     f_in = lambda t: [np.cos(3 * t), np.sin(3 * t)]
-    f_x = lambda x: [x, -(x ** 2)]
+    f_x = lambda x: [x, -(x**2)]
 
     with nengo.Network(seed=seed) as model:
         u = nengo.Node(output=f_in)
@@ -837,7 +838,7 @@ def test_set_function(Simulator):
 
     with model:
         # Can change to another function with correct dimensionality
-        conn_2d.function = lambda x: x ** 2
+        conn_2d.function = lambda x: x**2
         conn_1d.function = lambda x: x[0] + x[1]
 
     with Simulator(model):
@@ -1014,10 +1015,12 @@ def test_connectionlearningruletypeparam():
         a = nengo.Ensemble(10, 1)
         b = nengo.Ensemble(11, 1)
 
-        with pytest.raises(ValueError):  # need a 2D transform for BCM
+        with pytest.raises(
+            ValidationError, match="can only be applied on connections to neurons"
+        ):
             nengo.Connection(a, b, learning_rule_type=nengo.BCM())
 
-        with pytest.raises(ValueError):  # transform must be correct shape
+        with pytest.raises(ValidationError, match="does not match expected shape"):
             nengo.Connection(
                 a, b, transform=np.ones((10, 11)), learning_rule_type=nengo.BCM()
             )
@@ -1143,7 +1146,7 @@ def test_zero_activities_error(Simulator):
         a.bias = np.zeros(10)
         nengo.Connection(a, nengo.Node(size_in=1))
 
-    with pytest.raises(BuildError):
+    with pytest.raises(BuildError, match="'activities' matrix is all zero"):
         with Simulator(model):
             pass
 
@@ -1198,3 +1201,37 @@ def test_learning_rule_equality():
         assert conn0.learning_rule[0] != conn1.learning_rule
         assert conn1.learning_rule_type[0] == conn0.learning_rule_type
         assert conn1.learning_rule[0] == conn1.learning_rule[1]
+
+
+def test_learning_transform_shape_error(Simulator):
+    with nengo.Network() as net:
+        a = nengo.Ensemble(10, dimensions=2)
+        b = nengo.Ensemble(10, dimensions=2)
+        nengo.Connection(
+            a.neurons, b.neurons, transform=1, learning_rule_type=nengo.BCM()
+        )
+
+    with pytest.raises(
+        BuildError, match="'transform' must be a 2-dimensional array for learning"
+    ):
+        with Simulator(net):
+            pass
+
+
+def test_is_decoded_deprecation():
+    with pytest.warns(DeprecationWarning, match="is_decoded is deprecated"):
+        with nengo.Network():
+            assert nengo.Connection(nengo.Node(0), nengo.Node(size_in=1)).is_decoded
+
+
+def test_bad_function_type():
+    with nengo.Network():
+        ens = nengo.Ensemble(10, 1)
+        with pytest.raises(ValidationError, match="Invalid connection function type"):
+            nengo.Connection(ens, ens, function="hi")
+
+
+def test_probeable():
+    with nengo.Network():
+        conn = nengo.Connection(nengo.Ensemble(10, 1), nengo.Ensemble(10, 1))
+        assert conn.probeable == ("output", "input", "weights")

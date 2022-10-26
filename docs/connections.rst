@@ -148,7 +148,7 @@ These connections are the types of connections
 you see in most neural simulators,
 and can be used to reproduce networks
 written in other simulators like
-`Brian <http://briansimulator.org/>`_:
+`Brian <https://briansimulator.org/>`_:
 
 .. testcode::
 
@@ -363,7 +363,7 @@ and loading it up in the future.
        Representations for Symbol-Like Processing in Spiking Neural Networks.”
        PLoS ONE 11, no. 2 (February 22, 2016): e0149928.
        `doi:10.1371/journal.pone.0149928
-       <https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0149928>`_.
+       <https://pubmed.ncbi.nlm.nih.gov/26900931/>`_.
 .. [3] Note that decoded connections
        also accept the ``transform`` argument.
        In the case of decoded connections,

@@ -59,8 +59,8 @@ Commented lines show the default values for each setting.
 
 """
 
-import configparser
 import logging
+from configparser import DEFAULTSECT, ConfigParser
 
 import numpy as np
 
@@ -91,23 +91,25 @@ RC_FILES = [
 ]
 
 
-class _RC(configparser.SafeConfigParser):
+class _RC(ConfigParser):  # pylint: disable=too-many-ancestors
     """Allows reading from and writing to Nengo RC settings.
 
     This object is a :class:`configparser.ConfigParser`, which means that
-    values can be accessed and manipulated with ``get`` and ``set``:
+    values can be accessed and manipulated like a dictionary:
 
     .. testcode::
 
-       oldsize = nengo.rc.get("decoder_cache", "size")
-       nengo.rc.set("decoder_cache", "size", "2 GB")
+       oldsize = nengo.rc["decoder_cache"]["size"]
+       nengo.rc["decoder_cache"]["size"] = "2 GB"
 
-    ``get`` and ``set`` return and expect strings. There are also special
-    getter methods for booleans, ints, and floats:
+    All values are stored as strings. If you want to store or retrieve a
+    specific datatype, you should coerce it appropriately (e.g., with ``int()``).
+    Booleans are more flexible, so you should use the ``getboolean`` method
+    to access boolean values.
 
     .. testcode::
 
-       simple = nengo.rc.getboolean("exceptions", "simplified")
+       simple = nengo.rc["exceptions"].getboolean("simplified")
 
     In addition to the normal :class:`configparser.ConfigParser` methods,
     this object also has a ``reload_rc`` method to reset ``nengo.rc``
@@ -121,22 +123,21 @@ class _RC(configparser.SafeConfigParser):
     """
 
     def __init__(self):
-        # configparser uses old-style classes without 'super' support
-        configparser.SafeConfigParser.__init__(self)
+        super().__init__()
         self.reload_rc()
 
     @property
     def float_dtype(self):
         bits = self.get("precision", "bits")
-        return np.dtype("float%s" % bits)
+        return np.dtype(f"float{bits}")
 
     @property
     def int_dtype(self):
         bits = self.get("precision", "bits")
-        return np.dtype("int%s" % bits)
+        return np.dtype(f"int{bits}")
 
     def _clear(self):
-        self.remove_section(configparser.DEFAULTSECT)
+        self.remove_section(DEFAULTSECT)
         for s in self.sections():
             self.remove_section(s)
 
@@ -146,22 +147,16 @@ class _RC(configparser.SafeConfigParser):
             for k, v in settings.items():
                 self.set(section, k, str(v))
 
-    def read_file(self, fp, filename=None):
+    def read_file(self, fp, filename=None):  # pylint: disable=arguments-renamed
         if filename is None:
-            if hasattr(fp, "name"):
-                filename = fp.name
-            else:
-                filename = "<???>"
-        logger.debug("Reading configuration from {}".format(filename))
-        try:
-            return configparser.SafeConfigParser.read_file(self, fp, filename)
-        except AttributeError:
-            # pylint: disable=deprecated-method
-            return configparser.SafeConfigParser.readfp(self, fp, filename)
+            filename = fp.name if hasattr(fp, "name") else "<???>"
+
+        logger.debug("Reading configuration from %s", filename)
+        return super().read_file(fp, filename)
 
     def read(self, filenames):
-        logger.debug("Reading configuration files {}".format(filenames))
-        return configparser.SafeConfigParser.read(self, filenames)
+        logger.debug("Reading configuration files %s", filenames)
+        return super().read(filenames)
 
     def reload_rc(self, filenames=None):
         """Resets the currently loaded RC settings and loads new RC files.

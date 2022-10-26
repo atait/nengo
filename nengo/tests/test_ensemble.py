@@ -6,9 +6,9 @@ import pytest
 import nengo
 import nengo.utils.numpy as npext
 from nengo.dists import Choice, Uniform, UniformHypersphere
-from nengo.exceptions import BuildError, NengoWarning
+from nengo.exceptions import BuildError, NengoWarning, ReadonlyError
 from nengo.neurons import RegularSpiking
-from nengo.processes import WhiteNoise, FilteredNoise
+from nengo.processes import FilteredNoise, WhiteNoise
 from nengo.utils.testing import signals_allclose
 
 
@@ -369,16 +369,20 @@ def test_noise_gen(Simulator, NonDirectNeuronType, seed, plt, allclose):
         sim.run(0.06)
 
     t = sim.trange()
-    plt.title("intercepts=%d" % intercepts)
-    plt.plot(t, sim.data[pos_p], c="b", label="noise=%d" % pos_noise)
+    plt.title(f"intercepts={intercepts}")
+    plt.plot(t, sim.data[pos_p], c="b", label=f"noise={pos_noise}")
     plt.plot(t, sim.data[normal_p], c="k", label="no noise")
-    plt.plot(t, sim.data[neg_p], c="r", label="noise=%d" % neg_noise)
+    plt.plot(t, sim.data[neg_p], c="r", label=f"noise={neg_noise}")
     plt.legend(loc="best")
 
     assert np.sum(sim.data[pos_p], axis=0) >= np.sum(sim.data[normal_p], axis=0)
     assert np.sum(sim.data[normal_p], axis=0) >= np.sum(sim.data[neg_p], axis=0)
-    assert not allclose(sim.data[normal_p], sim.data[pos_p], record_rmse=False)
-    assert not allclose(sim.data[normal_p], sim.data[neg_p], record_rmse=False)
+    assert not allclose(
+        sim.data[normal_p], sim.data[pos_p], record_rmse=False, print_fail=0
+    )
+    assert not allclose(
+        sim.data[normal_p], sim.data[neg_p], record_rmse=False, print_fail=0
+    )
 
 
 def test_noise_copies_ok(Simulator, NonDirectNeuronType, seed, plt, allclose):
@@ -387,7 +391,7 @@ def test_noise_copies_ok(Simulator, NonDirectNeuronType, seed, plt, allclose):
     We test this both with the default system and without.
     """
 
-    process = FilteredNoise(synapse=nengo.Alpha(1.0), dist=Choice([0.5]))
+    process = FilteredNoise(synapse=nengo.Alpha(1.0), dist=Choice([[0.5]]))
     with nengo.Network(seed=seed) as model:
         if (
             NonDirectNeuronType.spiking
@@ -495,3 +499,16 @@ def test_pickle(seed, Simulator):
     after = sim.data[unpickled.probe]
 
     assert np.all(before == after)
+
+
+def test_neurons_readonly():
+    with nengo.Network():
+        ens = nengo.Ensemble(10, 1)
+        with pytest.raises(ReadonlyError, match="neurons"):
+            ens.neurons = "test"
+
+
+def test_probeable():
+    with nengo.Network():
+        ens = nengo.Ensemble(10, 1)
+        assert ens.probeable == ("decoded_output", "input", "scaled_encoders")

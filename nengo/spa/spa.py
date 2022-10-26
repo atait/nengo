@@ -2,14 +2,14 @@ import warnings
 
 import numpy as np
 
-import nengo
 from nengo.exceptions import SpaModuleError
-from nengo.spa.vocab import Vocabulary
+from nengo.network import Network
 from nengo.spa.module import Module
-from nengo.spa.utils import enable_spa_params
+from nengo.spa.utils import enable_spa_params, similarity
+from nengo.spa.vocab import Vocabulary
 
 
-class SPA(nengo.Network):
+class SPA(Network):
     """Base class for SPA models.
 
     This expands the standard `.Network` system to support structured
@@ -85,7 +85,7 @@ class SPA(nengo.Network):
         warnings.warn(
             DeprecationWarning(
                 "The nengo.spa module is deprecated. Please switch to using the "
-                "Nengo SPA project <https://www.nengo.ai/nengo-spa/>."
+                "NengoSPA project <https://www.nengo.ai/nengo-spa/>."
             )
         )
 
@@ -253,4 +253,4 @@ class SPA(nengo.Network):
         """
         if vocab is None:
             vocab = self.config[probe.target].vocab
-        return nengo.spa.similarity(data[probe], vocab)
+        return similarity(data[probe], vocab)

@@ -2,11 +2,16 @@ import warnings
 
 import numpy as np
 
-import nengo
+from nengo.config import Config
+from nengo.connection import Connection
 from nengo.dists import Choice, Exponential, Uniform
+from nengo.ensemble import Ensemble
 from nengo.exceptions import ValidationError
+from nengo.network import Network
+from nengo.node import Node
 from nengo.utils.network import with_self
 from nengo.utils.numpy import is_iterable
+
 from .ensemblearray import EnsembleArray
 
 
@@ -14,7 +19,7 @@ def filtered_step(t, shift=0.5, scale=50, step_val=1):
     return np.maximum(-1 / np.exp((t - shift) * scale) + 1, 0) * step_val
 
 
-class AssociativeMemory(nengo.Network):
+class AssociativeMemory(Network):
     """Associative memory network.
 
     Parameters
@@ -81,7 +86,7 @@ class AssociativeMemory(nengo.Network):
             # match
             raise ValidationError(
                 "Number of input vectors does not match number of output "
-                "vectors. %d != %d" % (input_vectors.shape[0], output_vectors.shape[0]),
+                f"vectors. {input_vectors.shape[0]} != {output_vectors.shape[0]}",
                 attr="input_vectors",
                 obj=type(self),
             )
@@ -95,17 +100,10 @@ class AssociativeMemory(nengo.Network):
 
         # --- Check preconditions
         self.n_items = input_vectors.shape[0]
-        if self.n_items != output_vectors.shape[0]:
-            raise ValidationError(
-                "Number of input vectors (%d) does not match number of output "
-                "vectors (%d)" % (self.n_items, output_vectors.shape[0]),
-                attr="input_vectors",
-                obj=self,
-            )
         if threshold.shape[0] != self.n_items:
             raise ValidationError(
-                "Number of threshold values (%d) does not match number of "
-                "input vectors (%d)." % (threshold.shape[0], self.n_items),
+                f"Number of threshold values ({threshold.shape[0]}) does not match "
+                f"number of input vectors ({self.n_items}).",
                 attr="threshold",
                 obj=self,
             )
@@ -120,9 +118,9 @@ class AssociativeMemory(nengo.Network):
 
         # -- Create the core network
         with self, self.am_ens_config:
-            self.bias_node = nengo.Node(output=1)
-            self.elem_input = nengo.Node(size_in=self.n_items, label="element input")
-            self.elem_output = nengo.Node(size_in=self.n_items, label="element output")
+            self.bias_node = Node(output=1)
+            self.elem_input = Node(size_in=self.n_items, label="element input")
+            self.elem_output = Node(size_in=self.n_items, label="element output")
             self.utilities = self.elem_output
 
             self.am_ensembles = []
@@ -130,18 +128,18 @@ class AssociativeMemory(nengo.Network):
             filt_scale = 15
             filt_step_func = lambda x: filtered_step(x, 0.0, scale=filt_scale)
             for i in range(self.n_items):
-                e = nengo.Ensemble(n_neurons, 1, label=label_prefix + str(i))
+                e = Ensemble(n_neurons, 1, label=label_prefix + str(i))
                 self.am_ensembles.append(e)
 
                 # Connect input and output nodes
-                nengo.Connection(self.bias_node, e, transform=-threshold[i])
-                nengo.Connection(self.elem_input[i], e)
-                nengo.Connection(e, self.elem_output[i], function=filt_step_func)
+                Connection(self.bias_node, e, transform=-threshold[i])
+                Connection(self.elem_input[i], e)
+                Connection(e, self.elem_output[i], function=filt_step_func)
 
             if inhibitable:
                 # Input node for inhibitory gating signal (if enabled)
-                self.inhibit = nengo.Node(size_in=1, label="inhibit")
-                nengo.Connection(
+                self.inhibit = Node(size_in=1, label="inhibit")
+                Connection(
                     self.inhibit,
                     self.elem_input,
                     transform=-np.ones((self.n_items, 1)) * self._inhib_scale,
@@ -160,8 +158,8 @@ class AssociativeMemory(nengo.Network):
     @property
     def am_ens_config(self):
         """(Config) Defaults for associative memory ensemble creation."""
-        cfg = nengo.Config(nengo.Ensemble, nengo.Connection)
-        cfg[nengo.Ensemble].update(
+        cfg = Config(Ensemble, Connection)
+        cfg[Ensemble].update(
             {
                 "radius": 1,
                 "intercepts": Exponential(self.exp_scale, 0.0, 1.0),
@@ -170,14 +168,14 @@ class AssociativeMemory(nengo.Network):
                 "n_eval_points": self.n_eval_points,
             }
         )
-        cfg[nengo.Connection].synapse = None
+        cfg[Connection].synapse = None
         return cfg
 
     @property
     def default_ens_config(self):
         """(Config) Defaults for other ensemble creation."""
-        cfg = nengo.Config(nengo.Ensemble)
-        cfg[nengo.Ensemble].update(
+        cfg = Config(Ensemble)
+        cfg[Ensemble].update(
             {
                 "radius": 1,
                 "intercepts": Exponential(self.exp_scale, 0.0, 1.0),
@@ -191,8 +189,8 @@ class AssociativeMemory(nengo.Network):
     @property
     def thresh_ens_config(self):
         """(Config) Defaults for threshold ensemble creation."""
-        cfg = nengo.Config(nengo.Ensemble)
-        cfg[nengo.Ensemble].update(
+        cfg = Config(Ensemble)
+        cfg[Ensemble].update(
             {
                 "radius": 1,
                 "intercepts": Uniform(0.5, 1.0),
@@ -234,22 +232,20 @@ class AssociativeMemory(nengo.Network):
         # --- Check some preconditions
         if input_scales.shape[1] != n_vectors:
             raise ValidationError(
-                "Number of input_scale values (%d) does not "
-                "match number of input vectors (%d)."
-                % (input_scales.shape[1], n_vectors),
+                f"Number of input_scale values ({input_scales.shape[1]}) does not "
+                f"match number of input vectors ({n_vectors}).",
                 attr="input_scales",
             )
         if hasattr(self, name):
             raise ValidationError(
-                "Name '%s' already exists as a node in the "
-                "associative memory." % name,
+                f"Name '{name}' already exists as a node in the associative memory.",
                 attr="name",
             )
 
         # --- Finally, make the input node and connect it
-        in_node = nengo.Node(size_in=d_vectors, label=name)
+        in_node = Node(size_in=d_vectors, label=name)
         setattr(self, name, in_node)
-        nengo.Connection(
+        Connection(
             in_node,
             self.elem_input,
             synapse=None,
@@ -279,21 +275,20 @@ class AssociativeMemory(nengo.Network):
         # --- Check preconditions
         if hasattr(self, name):
             raise ValidationError(
-                "Name '%s' already exists as a node in the "
-                "associative memory." % name,
+                f"Name '{name}' already exists as a node in the associative memory.",
                 attr="name",
             )
 
         # --- Make the output node and connect it
-        output = nengo.Node(size_in=output_vectors.shape[1], label=name)
+        output = Node(size_in=output_vectors.shape[1], label=name)
         setattr(self, name, output)
 
         if self.thresh_ens is not None:
-            c = nengo.Connection(
+            c = Connection(
                 self.thresh_ens.output, output, synapse=None, transform=output_vectors.T
             )
         else:
-            c = nengo.Connection(
+            c = Connection(
                 self.elem_output, output, synapse=None, transform=output_vectors.T
             )
         self.out_conns.append(c)
@@ -326,25 +321,23 @@ class AssociativeMemory(nengo.Network):
             the default output vector.
         """
         with self.default_ens_config:
-            default_vector_ens = nengo.Ensemble(
-                n_neurons, 1, label="Default %s vector" % output_name
+            default_vector_ens = Ensemble(
+                n_neurons, 1, label=f"Default {output_name} vector"
             )
-            nengo.Connection(self.bias_node, default_vector_ens, synapse=None)
+            Connection(self.bias_node, default_vector_ens, synapse=None)
 
             tr = -(1.0 / min_activation_value) * np.ones((1, self.n_items))
             if self.thresh_ens is not None:
-                c = nengo.Connection(
-                    self.thresh_ens.output, default_vector_ens, transform=tr
-                )
+                c = Connection(self.thresh_ens.output, default_vector_ens, transform=tr)
             else:
-                c = nengo.Connection(self.elem_output, default_vector_ens, transform=tr)
+                c = Connection(self.elem_output, default_vector_ens, transform=tr)
 
             # Add the output connection to the output connection list
             self.default_vector_inhibit_conns.append(c)
 
             # Make new output class attribute and connect to it
             output = getattr(self, output_name)
-            nengo.Connection(
+            Connection(
                 default_vector_ens,
                 output,
                 transform=np.array(output_vector, ndmin=2).T,
@@ -352,7 +345,7 @@ class AssociativeMemory(nengo.Network):
             )
 
             if self.inhibit is not None:
-                nengo.Connection(
+                Connection(
                     self.inhibit,
                     default_vector_ens,
                     transform=-self._inhib_scale,
@@ -371,7 +364,7 @@ class AssociativeMemory(nengo.Network):
             Mutual inhibition synapse time constant.
         """
         if not self.is_wta:
-            nengo.Connection(
+            Connection(
                 self.elem_output,
                 self.elem_input,
                 synapse=inhibit_synapse,
@@ -411,29 +404,29 @@ class AssociativeMemory(nengo.Network):
             self.thresh_ens = EnsembleArray(n_neurons, self.n_items, label="thresh_ens")
             self.thresholded_utilities = self.thresh_ens.output
 
-            nengo.Connection(
+            Connection(
                 self.bias_node,
                 self.thresh_bias.input,
                 transform=np.ones((self.n_items, 1)),
                 synapse=None,
             )
-            nengo.Connection(
+            Connection(
                 self.bias_node,
                 self.thresh_ens.input,
                 transform=np.ones((self.n_items, 1)),
                 synapse=None,
             )
-            nengo.Connection(
+            Connection(
                 self.elem_output, self.thresh_bias.input, transform=-inhibit_scale
             )
-            nengo.Connection(
+            Connection(
                 self.thresh_bias.output, self.thresh_ens.input, transform=-inhibit_scale
             )
 
             # Reroute connections from elem_output to be connections
             # from thresh_ens.output
             def reroute(conn):
-                c = nengo.Connection(
+                c = Connection(
                     self.thresh_ens.output,
                     conn.post,
                     transform=conn.transform,
@@ -450,6 +443,6 @@ class AssociativeMemory(nengo.Network):
             # Make inhibitory connection if inhibit option is set
             if self.inhibit is not None:
                 for e in self.thresh_ens.ensembles:
-                    nengo.Connection(
+                    Connection(
                         self.inhibit, e, transform=-self._inhib_scale, synapse=None
                     )

@@ -40,18 +40,18 @@ import warnings
 
 import numpy as np
 from numpy import (
-    product,
-    zeros,
+    allclose,
     array,
-    dot,
-    r_,
-    eye,
+    asarray,
     atleast_1d,
     atleast_2d,
+    dot,
+    eye,
     poly,
+    product,
+    r_,
     roots,
-    asarray,
-    allclose,
+    zeros,
 )
 
 from nengo._vendor.scipy import expm
@@ -209,7 +209,7 @@ def tf2ss(num, den):
     if K == 1:
         return array([], float), array([], float), array([], float), D
 
-    frow = -array([den[1:]])
+    frow = -1 * array([den[1:]])
     A = r_[frow, eye(K - 2, K - 1)]
     B = eye(K - 1, 1)
     C = num[:, 1:] - num[:, 0] * den[1:]
@@ -226,6 +226,7 @@ def _none_to_empty_2d(arg):
 def _atleast_2d_or_none(arg):
     if arg is not None:
         return atleast_2d(arg)
+    return None
 
 
 def _shape_or_none(M):
@@ -239,6 +240,7 @@ def _choice_not_none(*args):
     for arg in args:
         if arg is not None:
             return arg
+    return None
 
 
 def _restore(M, shape):
@@ -322,8 +324,8 @@ def ss2tf(A, B, C, D, input=0):
     # Check consistency and make them all rank-2 arrays
     A, B, C, D = abcd_normalize(A, B, C, D)
 
-    nout, nin = D.shape
-    if input >= nin:
+    n_out, n_in = D.shape
+    if input >= n_in:
         raise ValueError("System does not have the input specified.")
 
     # make MOSI from possibly MOMI system.
@@ -346,8 +348,8 @@ def ss2tf(A, B, C, D, input=0):
 
     num_states = A.shape[0]
     type_test = A[:, 0] + B[:, 0] + C[0, :] + D
-    num = np.zeros((nout, num_states + 1), type_test.dtype)
-    for k in range(nout):
+    num = np.zeros((n_out, num_states + 1), type_test.dtype)
+    for k in range(n_out):
         Ck = atleast_2d(C[k, :])
         num[k] = poly(A - dot(B, Ck)) + (D[k] - 1) * den
 
@@ -491,10 +493,10 @@ def cont2discrete(sys, dt, method="zoh", alpha=None):  # noqa: C901
         cd = cd.transpose()
         dd = d + alpha * np.dot(c, bd)
 
-    elif method == "bilinear" or method == "tustin":
+    elif method in ("bilinear", "tustin"):
         return cont2discrete(sys, dt, method="gbt", alpha=0.5)
 
-    elif method == "euler" or method == "forward_diff":
+    elif method in ("euler", "forward_diff"):
         return cont2discrete(sys, dt, method="gbt", alpha=0.0)
 
     elif method == "backward_diff":
@@ -522,6 +524,6 @@ def cont2discrete(sys, dt, method="zoh", alpha=None):  # noqa: C901
         dd = d
 
     else:
-        raise ValueError("Unknown transformation method '%s'" % method)
+        raise ValueError(f"Unknown transformation method '{method}'")
 
     return ad, bd, cd, dd, dt

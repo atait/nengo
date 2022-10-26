@@ -1,4 +1,8 @@
-from nengo.builder import Builder, Operator, Signal
+import numpy as np
+
+from nengo.builder.builder import Builder
+from nengo.builder.operator import Operator
+from nengo.builder.signal import Signal
 from nengo.processes import Process
 from nengo.rc import rc
 
@@ -63,7 +67,7 @@ class SimProcess(Operator):
         elif mode == "set":
             self.sets.extend([output])
         else:
-            raise ValueError("Unrecognized mode %r" % mode)
+            raise ValueError(f"Unrecognized mode '{mode}'")
 
         self.state_idxs = {}
         if state is not None:
@@ -97,7 +101,7 @@ class SimProcess(Operator):
 
     @property
     def _descstr(self):
-        return "%s, %s -> %s" % (self.process, self.input, self.output)
+        return f"{self.process}, {self.input} -> {self.output}"
 
     def make_step(self, signals, dt, rng):
         t = signals[self.t]
@@ -108,17 +112,27 @@ class SimProcess(Operator):
         rng = self.process.get_rng(rng)
         state = {name: signals[sig] for name, sig in self.state.items()}
         step_f = self.process.make_step(shape_in, shape_out, dt, rng, state)
-        args = (t,) if input is None else (t, input)
 
-        if self.mode == "inc":
+        if self.mode == "inc" and input is None:
 
             def step_simprocess():
-                output[...] += step_f(args[0].item(), *args[1:])
+                output[...] += step_f(t.item())
+
+        elif self.mode == "inc":
+
+            def step_simprocess():
+                output[...] += step_f(t.item(), np.copy(input))
+
+        elif input is None:
+
+            def step_simprocess():
+                output[...] = step_f(t.item())
 
         else:
+            assert self.mode != "inc" and input is not None
 
             def step_simprocess():
-                output[...] = step_f(args[0].item(), *args[1:])
+                output[...] = step_f(t.item(), np.copy(input))
 
         return step_simprocess
 
@@ -146,7 +160,7 @@ def build_process(model, process, sig_in=None, sig_out=None, mode="set"):
     more than once with the same `.Process` instance.
     """
     if sig_out is None:
-        sig_out = Signal(shape=sig_in.shape, name="%s.%s" % (sig_in.name, process))
+        sig_out = Signal(shape=sig_in.shape, name=f"{sig_in.name}.{process}")
 
     shape_in = sig_in.shape if sig_in is not None else (0,)
     shape_out = sig_out.shape if sig_out is not None else (0,)

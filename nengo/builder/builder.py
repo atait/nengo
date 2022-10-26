@@ -1,10 +1,10 @@
-import collections
 import warnings
+from collections import defaultdict
 
 import numpy as np
 
-from nengo.builder.signal import Signal, SignalDict
 from nengo.builder.operator import TimeUpdate
+from nengo.builder.signal import Signal, SignalDict
 from nengo.cache import NoDecoderCache
 from nengo.exceptions import BuildError
 from nengo.rc import rc
@@ -85,7 +85,7 @@ class Model:
         self.seeds = {}
         self.seeded = {}
 
-        self.sig = collections.defaultdict(dict)
+        self.sig = defaultdict(dict)
         self.sig["common"][0] = Signal(
             np.array(0.0, dtype=rc.float_dtype), readonly=True, name="ZERO"
         )
@@ -98,10 +98,11 @@ class Model:
         self.add_op(TimeUpdate(self.step, self.time))
 
         self.builder = Builder() if builder is None else builder
+
         self.build_callback = None
 
     def __str__(self):
-        return "Model: %s" % self.label
+        return f"Model: {self.label}"
 
     def add_op(self, op):
         """Add an operator to the model.
@@ -114,7 +115,7 @@ class Model:
         the ``operators`` attribute.
         """
         self.operators.append(op)
-        if rc.getboolean("nengo.Simulator", "fail_fast"):
+        if rc["nengo.Simulator"].getboolean("fail_fast"):
             # Fail fast by trying make_step with a temporary sigdict
             signals = SignalDict()
             op.init_signals(signals)
@@ -132,7 +133,7 @@ class Model:
         """
         built = self.builder.build(self, obj, *args, **kwargs)
         if self.build_callback is not None:
-            self.build_callback(obj)
+            self.build_callback(obj)  # pylint: disable=not-callable
         return built
 
     def has_built(self, obj):
@@ -230,16 +231,14 @@ class Builder:
         """
         if model.has_built(obj):
             # TODO: Prevent this at pre-build validation time.
-            warnings.warn("Object %s has already been built." % obj)
+            warnings.warn(f"Object {obj} has already been built.")
             return None
 
         for obj_cls in type(obj).__mro__:
             if obj_cls in cls.builders:
-                break
-        else:
-            raise BuildError("Cannot build object of type %r" % type(obj).__name__)
+                return cls.builders[obj_cls](model, obj, *args, **kwargs)
 
-        return cls.builders[obj_cls](model, obj, *args, **kwargs)
+        raise BuildError(f"Cannot build object of type '{type(obj).__name__}'")
 
     @classmethod
     def register(cls, nengo_class):
@@ -256,7 +255,7 @@ class Builder:
         def register_builder(build_fn):
             if nengo_class in cls.builders:
                 warnings.warn(
-                    "Type '%s' already has a builder. Overwriting." % nengo_class
+                    f"Type '{nengo_class}' already has a builder. Overwriting."
                 )
             cls.builders[nengo_class] = build_fn
             return build_fn

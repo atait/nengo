@@ -4,23 +4,23 @@ import errno
 import hashlib
 import logging
 import os
+import pathlib
 import pickle
-import shutil
 import struct
-from subprocess import CalledProcessError
-import sys
-from uuid import uuid1
 import warnings
+from subprocess import CalledProcessError
+from uuid import uuid1
 
 import numpy as np
 
 from nengo.dists import (
+    PDF,
     Choice,
     CosineSimilarity,
     Exponential,
     Gaussian,
-    PDF,
     Samples,
+    ScatteredHypersphere,
     SqrtBeta,
     SubvectorLength,
     Uniform,
@@ -33,11 +33,11 @@ from nengo.exceptions import (
     TimeoutError,
 )
 from nengo.neurons import (
+    LIF,
     AdaptiveLIF,
     AdaptiveLIFRate,
     Direct,
     Izhikevich,
-    LIF,
     LIFRate,
     PoissonSpiking,
     RectifiedLinear,
@@ -63,54 +63,51 @@ from nengo.solvers import (
 from nengo.utils import nco
 from nengo.utils.cache import byte_align, bytes2human, human2bytes
 from nengo.utils.least_squares_solvers import (
+    SVD,
+    BlockConjgrad,
     Cholesky,
+    Conjgrad,
     ConjgradScipy,
     LSMRScipy,
-    Conjgrad,
-    BlockConjgrad,
-    SVD,
     RandomizedSVD,
 )
 from nengo.utils.lock import FileLock
 
 logger = logging.getLogger(__name__)
 
-if sys.version_info < (3, 3, 0):
-    # there was no PermissionError before 3.3
-    PermissionError = OSError
-
 
 def get_fragment_size(path):
     """Get fragment size in cross-compatible way."""
     try:
         return os.statvfs(path).f_frsize
-    except AttributeError:  # no statvfs on Windows
+    except AttributeError:  # pragma: no cover
+        # no statvfs on Windows
         return 4096  # correct value in 99% of cases
 
 
 def safe_stat(path):
-    """Does os.stat, but fails gracefully in case of an OSError."""
+    """Gets file stat, but fails gracefully in case of an OSError."""
     try:
-        return os.stat(path)
+        return path.stat()
     except OSError as err:
         logger.warning("OSError during safe_stat: %s", err)
     return None
 
 
 def safe_remove(path):
-    """Does os.remove, but fails gracefully in case of an OSError."""
+    """Removes file, but fails gracefully in case of an OSError."""
     try:
-        os.remove(path)
-    except OSError as err:
+        path.unlink()
+    except OSError as err:  # pragma: no cover
         logger.warning("OSError during safe_remove: %s", err)
 
 
 def safe_makedirs(path):
     """Try to make directories, but continue on error."""
-    if not os.path.exists(path):
+    if not path.exists():
         try:
-            os.makedirs(path)
-        except OSError as err:
+            path.mkdir(parents=True)
+        except OSError as err:  # pragma: no cover
             logger.warning("OSError during safe_makedirs: %s", err)
 
 
@@ -215,6 +212,7 @@ class Fingerprint:
         Gaussian,
         PDF,
         Samples,
+        ScatteredHypersphere,
         SqrtBeta,
         SubvectorLength,
         Uniform,
@@ -253,14 +251,14 @@ class Fingerprint:
     def __init__(self, obj):
         if not self.supports(obj):
             raise FingerprintError(
-                "Object of type %r cannot be fingerprinted." % type(obj).__name__
+                f"Object of type '{type(obj).__name__}' cannot be fingerprinted."
             )
 
         self.fingerprint = hashlib.sha1()
         try:
             self.fingerprint.update(pickle.dumps(obj, pickle.HIGHEST_PROTOCOL))
-        except Exception as err:
-            raise FingerprintError(str(err))
+        except Exception as err:  # pragma: no cover
+            raise FingerprintError() from err
 
     def __str__(self):
         return self.fingerprint.hexdigest()
@@ -356,13 +354,13 @@ class CacheIndex:
     VERSION = 2
 
     def __init__(self, cache_dir):
-        self.cache_dir = cache_dir
+        self.cache_dir = pathlib.Path(cache_dir)
         self.version = None
         self._index = None
 
     @property
     def index_path(self):
-        return os.path.join(self.cache_dir, self._INDEX)
+        return self.cache_dir / self._INDEX
 
     def __contains__(self, key):
         return key in self._index
@@ -370,7 +368,7 @@ class CacheIndex:
     def __getitem__(self, key):
         return self._index[key]
 
-    def __setitem__(self, key):
+    def __setitem__(self, key, value):
         raise TypeError("Index is readonly.")
 
     def __delitem__(self, key):
@@ -384,7 +382,7 @@ class CacheIndex:
         pass
 
     def _load_index_file(self):
-        with open(self.index_path, "rb") as f:
+        with self.index_path.open("rb") as f:
             self.version = pickle.load(f)
             if (
                 self.version[0] > self.VERSION
@@ -439,7 +437,7 @@ class WriteableCacheIndex(CacheIndex):
 
     def __init__(self, cache_dir):
         super().__init__(cache_dir)
-        self._lock = FileLock(self.index_path + ".lock")
+        self._lock = FileLock(str(self.index_path) + ".lock")
         self._updates = {}
         self._deletes = set()
         self._removed_files = set()
@@ -462,7 +460,7 @@ class WriteableCacheIndex(CacheIndex):
         with self._lock:
             try:
                 self._load_index_file()
-            except Exception:
+            except (FileNotFoundError, EOFError):
                 logger.exception("Decoder cache index corrupted. Reinitializing cache.")
                 # If we can't load the index file, the cache is corrupted,
                 # so we invalidate it (delete all files in the cache)
@@ -474,25 +472,32 @@ class WriteableCacheIndex(CacheIndex):
         self.sync()
 
     def _reinit(self):
-        for f in os.listdir(self.cache_dir):
-            path = os.path.join(self.cache_dir, f)
-            if path == self._lock.filename:
-                continue
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
+        lock_filepath = pathlib.Path(self._lock.filename)
+
+        def clear_directory(dir_path):
+            for path in dir_path.iterdir():
+                if path == lock_filepath:
+                    continue
+                if path.is_dir():
+                    clear_directory(path)
+                    path.rmdir()
+                else:
+                    path.unlink()
+
+        clear_directory(self.cache_dir)
         self._index = {}
 
     def remove_file_entry(self, filename):
         """Remove entries mapping to ``filename``."""
-        if os.path.realpath(filename).startswith(self.cache_dir):
-            filename = os.path.relpath(filename, self.cache_dir)
-        self._removed_files.add(filename)
+        filename = pathlib.Path(filename)
+        if self.cache_dir in filename.parents:
+            filename = filename.relative_to(self.cache_dir)
+        self._removed_files.add(str(filename))
 
     def _write_index(self):
         assert self._lock.acquired
-        with open(self.index_path + ".part", "wb") as f:
+        part_path = self.index_path.with_suffix(self.index_path.suffix + ".part")
+        with part_path.open("wb") as f:
             # Use protocol 2 for version information to ensure that
             # all Python versions supported by Nengo will be able to
             # read it in the future.
@@ -500,8 +505,9 @@ class WriteableCacheIndex(CacheIndex):
             # Use highest available protocol for index data for maximum
             # performance.
             pickle.dump(self._index, f, pickle.HIGHEST_PROTOCOL)
+
         try:
-            os.replace(self.index_path + ".part", self.index_path)
+            part_path.replace(self.index_path)
         except (CalledProcessError, PermissionError):
             # It may fail when
             # another program like a virus scanner is accessing the file to be
@@ -514,8 +520,8 @@ class WriteableCacheIndex(CacheIndex):
                 "it a lot, you might want to consider doing one of the "
                 "following for the best Nengo performance:\n"
                 "1. Configure your anti-virus to ignore the Nengo cache "
-                "folder ('{cache_dir}').\n"
-                "2. Disable the cache.\n".format(cache_dir=self.cache_dir),
+                f"folder ('{self.cache_dir}').\n"
+                "2. Disable the cache.\n",
                 category=CacheIOWarning,
             )
 
@@ -528,7 +534,7 @@ class WriteableCacheIndex(CacheIndex):
             with self._lock:
                 try:
                     self._load_index_file()
-                except IOError as err:
+                except IOError as err:  # pragma: no cover
                     if err.errno == errno.ENOENT:
                         self._index = {}
                     else:
@@ -544,7 +550,7 @@ class WriteableCacheIndex(CacheIndex):
                 }
 
                 self._write_index()
-        except TimeoutError:
+        except TimeoutError:  # pragma: no cover
             warnings.warn(
                 "Decoder cache index could not acquire lock. "
                 "Cache index was not synced."
@@ -582,12 +588,12 @@ class DecoderCache:
         self.readonly = readonly
         if cache_dir is None:
             cache_dir = self.get_default_dir()
-        self.cache_dir = cache_dir
+        self.cache_dir = pathlib.Path(cache_dir)
         if readonly:
-            self._index = CacheIndex(cache_dir)
+            self._index = CacheIndex(self.cache_dir)
         else:
             safe_makedirs(self.cache_dir)
-            self._index = WriteableCacheIndex(cache_dir)
+            self._index = WriteableCacheIndex(self.cache_dir)
         self._fragment_size = get_fragment_size(self.cache_dir)
         self._fd = None
         self._in_context = False
@@ -596,7 +602,7 @@ class DecoderCache:
         try:
             try:
                 self._index.__enter__()
-            except TimeoutError:
+            except TimeoutError:  # pragma: no cover
                 self.readonly = True
                 self._index = CacheIndex(self.cache_dir)
                 self._index.__enter__()
@@ -604,7 +610,7 @@ class DecoderCache:
                     "Decoder cache could not acquire lock and was "
                     "set to readonly mode."
                 )
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             self.readonly = True
             self._index = None
             logger.debug("Could not acquire lock because: %s", e)
@@ -616,8 +622,8 @@ class DecoderCache:
         self._in_context = False
         self._close_fd()
         if self._index is not None:
-            rval = self._index.__exit__(exc_type, exc_value, traceback)
-            return rval
+            return self._index.__exit__(exc_type, exc_value, traceback)
+        return None
 
     @staticmethod
     def get_default_dir():
@@ -627,7 +633,7 @@ class DecoderCache:
         -------
         str
         """
-        return rc.get("decoder_cache", "path")
+        return rc["decoder_cache"]["path"]
 
     def _close_fd(self):
         if self._fd is not None:
@@ -636,7 +642,9 @@ class DecoderCache:
 
     def _get_fd(self):
         if self._fd is None:
-            self._fd = open(self._key2path(str(uuid1())), "wb")
+            self._fd = open(  # pylint: disable=consider-using-with
+                self._key2path(str(uuid1())), "wb"
+            )
         return self._fd
 
     def get_files(self):
@@ -647,10 +655,9 @@ class DecoderCache:
         list of (str, int) tuples
         """
         files = []
-        for subdir in os.listdir(self.cache_dir):
-            path = os.path.join(self.cache_dir, subdir)
-            if os.path.isdir(path):
-                files.extend(os.path.join(path, f) for f in os.listdir(path))
+        for path in self.cache_dir.iterdir():
+            if path.is_dir():
+                files.extend(path.iterdir())
         return files
 
     def get_size(self):
@@ -698,14 +705,14 @@ class DecoderCache:
             return
 
         if limit is None:
-            limit = rc.get("decoder_cache", "size")
+            limit = rc["decoder_cache"]["size"]
         if isinstance(limit, str):
             limit = human2bytes(limit)
 
         self._close_fd()
 
         fileinfo = []
-        excess = -limit
+        excess = -1 * limit
         for path in self.get_files():
             stat = safe_stat(path)
             if stat is not None:
@@ -724,7 +731,7 @@ class DecoderCache:
 
                     excess -= size
                     self.remove_file(path)
-        except TimeoutError:
+        except TimeoutError:  # pragma: no cover
             logger.debug("Not shrinking cache. Lock could not be acquired.")
 
     def remove_file(self, path):
@@ -749,8 +756,11 @@ class DecoderCache:
         def cached_solver(
             conn, gain, bias, x, targets, rng=np.random, **uncached_kwargs
         ):
-            if not self._in_context:
-                warnings.warn("Cannot use cached solver outside of `with cache` block.")
+            if not self._in_context or self._index is None:
+                if not self._in_context:
+                    warnings.warn(
+                        "Cannot use cached solver outside of `with cache` block."
+                    )
                 return solver_fn(
                     conn, gain, bias, x, targets, rng=rng, **uncached_kwargs
                 )
@@ -759,7 +769,7 @@ class DecoderCache:
                 key = self._get_cache_key(
                     conn.solver, conn.pre_obj.neuron_type, gain, bias, x, targets, rng
                 )
-            except FingerprintError as e:
+            except FingerprintError as e:  # pragma: no cover
                 logger.debug("Failed to generate cache key: %s", e)
                 return solver_fn(
                     conn, gain, bias, x, targets, rng=rng, **uncached_kwargs
@@ -772,7 +782,7 @@ class DecoderCache:
                 with open(path, "rb") as f:
                     f.seek(start)
                     info, decoders = nco.read(f)
-            except Exception as err:
+            except (KeyError, FileNotFoundError, struct.error) as err:
                 if isinstance(err, KeyError):
                     logger.debug("Cache miss [%s].", key)
                 else:
@@ -817,9 +827,9 @@ class DecoderCache:
     def _key2path(self, key):
         prefix = key[:2]
         suffix = key[2:]
-        directory = os.path.join(self.cache_dir, prefix)
+        directory = self.cache_dir / prefix
         safe_makedirs(directory)
-        return os.path.join(directory, suffix + self._CACHE_EXT)
+        return directory / (suffix + self._CACHE_EXT)
 
 
 class NoDecoderCache:
@@ -849,8 +859,8 @@ class NoDecoderCache:
 
 def get_default_decoder_cache():
     """Get default decoder implementation based on config settings."""
-    if rc.getboolean("decoder_cache", "enabled"):
-        decoder_cache = DecoderCache(rc.getboolean("decoder_cache", "readonly"))
+    if rc["decoder_cache"].getboolean("enabled"):
+        decoder_cache = DecoderCache(rc["decoder_cache"].getboolean("readonly"))
     else:
         decoder_cache = NoDecoderCache()
     return decoder_cache

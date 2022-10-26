@@ -1,5 +1,5 @@
-from nengo.exceptions import TimeoutError
 from nengo._vendor import portalocker
+from nengo.exceptions import TimeoutError
 
 
 class FileLock:
@@ -18,10 +18,8 @@ class FileLock:
         try:
             self._lock.acquire()
             self._acquired = True
-        except (portalocker.AlreadyLocked, portalocker.LockException):
-            raise TimeoutError(
-                "Could not acquire lock '{filename}'.".format(filename=self.filename)
-            )
+        except (portalocker.AlreadyLocked, portalocker.LockException) as e:
+            raise TimeoutError(f"Could not acquire lock '{self.filename}'.") from e
 
     def release(self):
         self._lock.release()

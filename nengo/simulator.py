@@ -147,7 +147,7 @@ class Simulator:
     """
 
     def __init__(
-        self, network, dt=0.001, seed=None, model=None, progress_bar=True, optimize=True
+        self, network, dt=0.001, seed=None, model=None, progress_bar=True, optimize=True, model_seeds=None
     ):
         self.closed = True  # Start closed in case constructor raises exception
         self.progress_bar = progress_bar
@@ -161,6 +161,8 @@ class Simulator:
             )
         else:
             self.model = model
+        if model_seeds is not None:
+            self.model.seeds = model_seeds
 
         pt = ProgressTracker(progress_bar, Progress("Building", "Build"))
         with pt:
